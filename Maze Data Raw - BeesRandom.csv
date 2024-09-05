@@ -1,0 +1,98 @@
+Bee,RA,ConcentrationDifference,Order,Colors,Info_Treatment,Choice1HV,ColorChosen,Side,Horizon
+Red22,KC,0.75,1,RLB,EQ,1,Red,Right,1
+Red22,KC,0.75,2,GO,EQ,1,Orange,Right,1
+Red22,KC,0.75,3,DBW,EQ,0,DB,Right,1
+Red22,KC,0.75,4,LGB,EQ,0,Black,Right,1
+Orange27,KC,0.75,1,RLB,EQ,1,Red,Right,1
+Orange27,KC,0.75,2,GO,EQ,0,Green,Right,1
+Orange27,KC,0.75,3,DBW,EQ,0,Dark Blue,Right,1
+Orange27,KC,0.75,4,LGB,EQ,1,Black,Right,1
+Orange10,KC,0.75,1,RLB,EQ,0,Blue,Right,1
+Orange10,KC,0.75,2,GO,EQ,1,Orange,Left,1
+Orange10,KC,0.75,3,DBW,EQ,1,White,Right,1
+Orange10,KC,0.75,4,LGB,EQ,1,LimeGreen,Left,1
+Orange91,KC,0.75,1,RLB,EQ,1,Red,Left,1
+Orange91,KC,0.75,2,GO,EQ,1,Orange,Left,1
+Red88,KC,1.75,1,RLB,EQ,1,Red,Right,1
+Red88,KC,1.75,2,GO,EQ,1,Orange,Left,1
+Red88,KC,1.75,3,DBW,EQ,0,Dark Blue,Right,1
+Red88,KC,1.75,4,LGB,EQ,0,Black,Right,1
+White32,JM,1.75,1,RLB,EQ,1,Blue,Left,6
+White32,JM,1.75,2,GO,EQ,0,Green,Right,6
+White32,JM,1.75,3,DBW,EQ,1,Dark Blue,Right,6
+White32,JM,1.75,4,LGB,EQ,1,Black,Right,6
+White8,JM,1.75,1,RLB,EQ,0,Red,Left,6
+White8,JM,1.75,2,GO,EQ,1,Orange,Left,6
+White8,JM,1.75,3,DBW,EQ,0,White,Right,6
+White8,JM,1.75,4,LGB,EQ,1,Black,Right,6
+Red64,JM,1.75,1,RLB,EQ,0,Red,Right,1
+Red64,JM,1.75,2,GO,EQ,1,Green,Left,1
+Red64,JM,1.75,3,DBW,EQ,1,Dark Blue,Left,1
+Red64,JM,1.75,4,LGB,EQ,1,Black,Right,1
+Red28,JM,1.75,1,RLB,EQ,0,Blue,Left,1
+Red28,JM,1.75,2,GO,EQ,1,Orange,Right,1
+Red28,JM,1.75,3,DBW,EQ,1,White,Left,1
+Red28,JM,1.75,4,LGB,EQ,0,LimeGreen,Right,1
+Green24,JM,1.75,1,RLB,EQ,0,Blue,Left,6
+Green24,JM,1.75,2,GO,EQ,1,Orange,Right,6
+Red96,KC,1.75,1,RLB,EQ,1,Orange,Left,6
+Red96,KC,1.75,2,GO,EQ,1,Green,Left,6
+Red35,JM,1.75,1,RLB,EQ,0,Red,Left,6
+Red35,JM,1.75,2,GO,EQ,1,Orange,Left,6
+Red35,JM,1.75,3,DBW,EQ,1,Dark Blue,Left,6
+Red35,JM,1.75,4,LGB,EQ,1,LimeGreen,Right,6
+Red9,JM,1.75,1,RLB,EQ,1,Red,Right,6
+Red9,JM,1.75,2,GO,EQ,1,Green,Right,6
+Red9,JM,1.75,3,DBW,EQ,0,White,Left,6
+Red9,JM,1.75,4,LGB,EQ,0,LimeGreen,Left,6
+Red2,JM,1.75,1,RLB,EQ,0,Red,Right,6
+Red2,JM,1.75,2,GO,EQ,1,Orange,Right,6
+Red2,JM,1.75,3,DBW,EQ,1,Dark Blue,Right,6
+Red2,JM,1.75,4,LGB,EQ,1,Lime Green,Left,6
+Red37,JM,1.75,1,RLB,EQ,0,Light Blue,Right,6
+Red37,JM,1.75,2,GO,EQ,0,Green,Right,6
+Red37,JM,1.75,3,DBW,EQ,1,White,Right,6
+Red37,JM,1.75,4,LGB,EQ,1,Blue,Left,6
+Green90,JM,0.75,1,RLB,HL,1,Light Blue,Left,1
+Green90,JM,0.75,2,GO,HH,0,Green,Left,1
+Green90,JM,0.75,3,DBW,HH,0,Dark Blue,Left,1
+Green90,JM,0.75,4,LGB,HL,0,Light Green,Left,1
+Green86,CP,0.75,1,RLB,HH,0,Red,Right,1
+Orange91,CP,0.75,1,RLB,HH,1,Red,Right,1
+Orange91,CP,0.75,2,GO,HH,1,Orange,Left,1
+Orange91,CP,0.75,3,DBW,HH,0,White,Left,1
+Green49,CP,1.75,1,RLB,HH,1,Blue,Left,1
+Green49,CP,1.75,2,GO,HH,1,White,Right,1
+White12,CP,1.75,1,RLB,HH,0,Red,Right,1
+White12,CP,1.75,2,OG,HH,1,Orange,Right,1
+Green36,JM,1.75,1,RLB,HH,0,Red,Left,1
+Green36,JM,1.75,2,GO,HL,0,Orange,Left,1
+Green36,JM,1.75,3,RLB,HH,1,Dark Blue,Left,1
+Green36,JM,1.75,4,OG,HH,1,Black,Right,1
+White12,JM,1.75,1,RLB,HH,1,Blue,Right,1
+White12,JM,1.75,2,GO,HH,0,Green,Left,1
+White12,JM,1.75,3,RLB,HL,1,Dark Blue,Right,1
+White12,JM,1.75,4,OG,HH,1,Lime Green,Right,1
+Yellow2,JM,1.75,1,RLB,HL,0,Blue,Right,1
+Yellow2,JM,1.75,2,GO,HL,1,Orange,Right,1
+Yellow2,JM,1.75,3,RLB,HL,0,Dark Blue,Right,1
+Yellow2,JM,1.75,4,OG,HH,1,Black,Left,1
+Green 18,JM,1.75,1,RLB,HL,1,Blue,Right,1
+White4,JM,0.75,1,RLB,HH,1,Red,Left,6
+White4,JM,0.75,2,GO,HH,0,Orange,Left,6
+White4,JM,0.75,3,DBW,HL,1,Dark Blue,Right,6
+White4,JM,0.75,4,LGB,HH,1,Lime Green,Left,6
+Yellow23,JM,1.75,1,RLB,HH,0,Red,Right,6
+Yellow23,JM,1.75,2,GO,HH,0,Green,Right,6
+Yellow23,JM,1.75,3,DBW,HH,1,White,Left,6
+Yellow23,JM,1.75,4,LGB,HL,1,Light Green,Right,6
+Yellow44,JM,1.75,1,RLB,HH,1,Red,Right,6
+Yellow44,JM,1.75,2,GO,HH,1,Orange,Left,6
+White15,CP,1.75,1,RLB,HH,1,Light Blue,Left,1
+White15,CP,1.75,2,GO,HH,1,Orange,Left,1
+White15,CP,1.75,3,DBW,HH,0,Dark Blue,Left,1
+White15,CP,1.75,4,LGB,HH,1,Lime Green,Right,1
+White21,JM,1.75,1,RLB,HL,0,Blue,Left,6
+White21,JM,1.75,2,GO,HL,1,Orange,Right,6
+White21,JM,1.75,3,DBW,HH,1,Dark Blue,Left,6
+White21,JM,1.75,4,LGB,HL,0,Black,Right,6
