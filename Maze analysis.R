@@ -4,7 +4,7 @@ library(tidyverse)
 
 #keeping the data sets seperate for ease and lack of confusion, downloads directly from csv
 #DirectedData <- read_csv("https://docs.google.com/spreadsheets/d/1ovsN4S_WVcxDk0N7of0IAYOoADBa6VeDisBH5x6cBQw/gviz/tq?tqx=out:csv")
-DirectedData <- read.csv("https://docs.google.com/spreadsheets/d/1pPttKRQc9TGaWn5XUz1tWmZYib42oP97JBMPJXHnIbU/gviz/tq?tqx=out:csv")
+DirectedData <- read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/main/Maze%20Data%20Raw%20-%20BeesRandom.csv")
 
 ######## Directed #######
 

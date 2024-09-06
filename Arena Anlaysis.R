@@ -62,7 +62,7 @@ opar <- par()
 #########################
 # I. Import (data wide format)
 #read data in
-OriginalBeeHorizonArena <- read.csv("https://docs.google.com/spreadsheets/d/1YZg10SOnnuv660WsdSfyzF6dMf9LCouG/gviz/tq?tqx=out:csv")
+OriginalBeeHorizonArena <- read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/main/BeeHorizonArena%20MASTER%20DATA%20(2).csv")
 # Note this is the slightly older version with color information
 # Original datasheets are here: https://drive.google.com/drive/folders/1zpLofiK94Yivnq1wPqxEDhMRsQ5kj-Bn
 
