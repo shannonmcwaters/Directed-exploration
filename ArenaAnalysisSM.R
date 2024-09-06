@@ -12,7 +12,7 @@ ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed
   # Alternatively see section D.XIII.
   #
   # How should revisits to the same individual be counted?
-  revisitoption <- "no reward" # counted as a visit with 0 reward
+  #revisitoption <- "no reward" # counted as a visit with 0 reward
   # revisitoption <- "not counted" # not counted as visit at all
   # revisitoption <- "full" # counted as visit with full (intended) reward
   #
