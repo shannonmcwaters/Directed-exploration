@@ -1,6 +1,6 @@
 library(dplyr)
 library(tidyverse)
-ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/main/BeeHorizonArena%20MASTER%20DATA%20-%20Sheet1%20(4).csv")
+ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Arena%20Data%20raw")
 
 #####################################################################
 #
@@ -79,6 +79,25 @@ ArenaDataLong <- ArenaDataLong %>%
   ungroup() %>%
   select(-RunningSum1, -RunningCount1, -RunningSum2, -RunningCount2) # Remove intermediate columns
 
+#Running averages but allowing repeats to count
+ArenaDataLong <- ArenaDataLong %>%
+  mutate(
+    Reward = as.numeric(Reward),
+    Informative = as.numeric(Informative))  %>%
+  arrange(Bee, Order, HorizonChoiceNum) %>%   # Ensure data is ordered properly
+  group_by(Bee, Order) %>%                    # Group by Bee and Horizon (treatment)
+  mutate(
+    RunSum1 = lag(cumsum(Reward * (Informative == 1)), default = 0),  # Running sum for flower type 1
+    RunCount1 = lag(cumsum(Informative == 1), default = 0),                 # Running count for flower type 1
+    RepeatRunAvg1 = ifelse(RunCount1 > 0, RunSum1 / RunCount1, NA),   # Running avg for flower type 1
+    RunSum2 = lag(cumsum(Reward * (Informative == 0)), default = 0),  # Running sum for flower type 0
+    RunCount2 = lag(cumsum(Informative == 0), default = 0),                 # Running count for flower type 0
+    RepeatRunAvg2 = ifelse(RunCount2 > 0, RunSum2 / RunCount2, NA)    # Running avg for flower type 0
+  ) %>%
+  ungroup() %>%
+  select(-RunSum1, -RunCount1, -RunSum2, -RunCount2) # Remove intermediate columns
+
+
 #Add color chosen an color ignored
 ArenaDataLong <- ArenaDataLong %>%
   mutate(
@@ -119,7 +138,7 @@ FirstChoice <- FirstChoice %>%
   ))
 
 
-#Now for which flower is the true high value
+#Now for which flower is the true high value for REPEAT =0reward
 FirstChoice <- FirstChoice %>%
   mutate(HighValueFlower = case_when(
     RunningAvg1 > RunningAvg2 ~ "One",    # If RunningAvg1 is greater than RunningAvg2
@@ -129,7 +148,7 @@ FirstChoice <- FirstChoice %>%
 # Compute PropInfDiff and PropValDiff but make sure it represents the proportion change from the true informative option 
 FirstChoice <- FirstChoice %>%
   mutate(
-    # Compute PropInfDiff
+    # Compute PropValDiff 
     PropValDiff = case_when(
       TrueInformative == "One" ~ (RunningAvg1 - RunningAvg2) / RunningAvg1,
       TrueInformative == "Two" ~ (RunningAvg2 - RunningAvg1) / RunningAvg2,
@@ -137,7 +156,7 @@ FirstChoice <- FirstChoice %>%
       TRUE ~ NA_real_  # In case there are any unexpected values
     ),
     
-    # Compute PropValDiff
+    # Compute PropInfDiff if neg - they know more about the low info flower
     PropInfDiff = case_when(
       TrueInformative == "One" ~ (FlowerOneVisits - FlowerTwoVisits) / FlowerOneVisits,
       TrueInformative == "Two" ~ (FlowerTwoVisits - FlowerOneVisits) / FlowerTwoVisits,
@@ -156,7 +175,7 @@ FirstChoice <- FirstChoice %>%
       TRUE ~ NA_real_  # In case there are any unexpected values
     ),
     
-    # Compute PropValDiff
+    # Compute PropValDiff if neg - they know more about the low value flower
     PropInfDiff_Value = case_when(
       HighValueFlower == "One" ~ (FlowerOneVisits - FlowerTwoVisits) / FlowerOneVisits,
       HighValueFlower == "Two" ~ (FlowerTwoVisits - FlowerOneVisits) / FlowerTwoVisits,
@@ -174,12 +193,14 @@ FirstChoice_subset <- FirstChoice_subset %>%
   filter(TrueInformative != "Equal") %>%  # Remove rows where TrueInformative is "Equal"
   mutate(ChoseInformative = ifelse(FlowerChoice == TrueInformative, 1, 0)) %>%
   mutate(Value = ifelse(FlowerChoice == HighValueFlower, 1, 0)) %>%
-  mutate(HighInfoHighValue = ifelse(TrueInformative == HighValueFlower,1,0))
+  mutate(HighInfoHighValue = ifelse(TrueInformative == HighValueFlower,1,0)) 
+  
+  
 
 #Model of first choice in the test phase
-firstchoicemod = glm(ChoseInformative ~ Horizon + PropInfDiff + PropValDiff + Order, family = binomial, data = FirstChoice_subset)
+firstchoicemod = glm(ChoseInformative ~ as.factor(Horizon) + as.factor(Order) + PropInfDiff + PropValDiff, family = binomial, data = FirstChoice_subset)
 summary(firstchoicemod)
-valuemod = glm(Value ~ Horizon +PropInfDiff_Value + PropValDiff_Value + Order, family = binomial, data = FirstChoice_subset)
+valuemod = glm(Value ~ as.factor(Horizon) + PropInfDiff_Value + PropValDiff_Value + as.factor(Order), family = binomial, data = FirstChoice_subset)
 summary(valuemod)
 
 
@@ -196,22 +217,134 @@ ggplot(FirstChoice_subset, aes(x = PropValDiff, y = predicted_prob, color = fact
   stat_smooth(method = "glm", se = FALSE) +
   labs(x = "Proportional Value Difference", y = "Predicted Probability of Choosing Informative Flower") +
   theme_minimal()
-ggplot(FirstChoice_subset, aes(x = factor(Horizon), y = predicted_prob)) +
+ggplot(FirstChoice_subset, aes(x = factor(Horizon), y = predicted_prob, fill = factor(HighInfoHighValue))) +
   geom_boxplot() +
   labs(x = "Horizon", y = "Predicted Probability of Choosing Informative Flower") +
   theme_minimal()
 # Create the boxplot
 ggplot(FirstChoice_subset, aes(x = factor(Order), y = predicted_prob, fill = factor(Horizon))) +
   geom_boxplot() +
-  facet_wrap(~ Horizon) + 
-  labs(x = "Order", y = "Predicted Probability of Choosing Informative Flower") +
+  labs(x = "Order in which treatment was received", y = "Probability of Choosing Informative Flower") +
   theme_minimal()
-
 #plots for VALUE
 FirstChoice_subset$predicted_prob_value <- predict(valuemod, newdata = FirstChoice_subset, type = "response")
-ggplot(FirstChoice_subset, aes(x = PropInfDiff_Value, y = predicted_prob_value, color = factor(Horizon))) +
+ggplot(FirstChoice_subset, aes(x = factor(HighInfoHighValue), y = predicted_prob_value, color = factor(Horizon))) +
   geom_jitter(width = 0.1, height = 0.05, alpha = 0.6) +
   stat_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE) +
   labs(x = "Proportional Information Difference", y = "Predicted Probability of Choosing High Value Flower") +
   theme_minimal() +
   coord_cartesian(ylim = c(0, 1)) 
+
+
+##############Let's assume they don't deplete flowers and so thye experience the nectar even on repeat visits
+FirstChoiceRep <- ArenaDataLong %>%
+  filter(Session == "Test", ChoiceNumber == 1)
+#Make a row that says what flower is more informative - 
+FirstChoiceRep <- FirstChoiceRep %>%
+  mutate(TrueInformative = case_when(
+    FlowerOneVisits > FlowerTwoVisits ~ "Two",  #More visits to FlowerOne
+    FlowerOneVisits < FlowerTwoVisits ~ "One",  # More visits to FlowerTwo
+    FlowerOneVisits == FlowerTwoVisits ~ "Equal"  # Equal visits to both
+  ))
+
+
+#Now for which flower is the true high value for REPEAT =0reward
+FirstChoiceRep <- FirstChoiceRep %>%
+  mutate(HighValueFlower = case_when(
+    RepeatRunAvg1 > RepeatRunAvg2 ~ "One",    # If RunningAvg1 is greater than RunningAvg2
+    RepeatRunAvg1 < RepeatRunAvg2 ~ "Two",    # If RunningAvg1 is less than RunningAvg2
+    RepeatRunAvg1 == RepeatRunAvg2 ~ "Equal"  # If RunningAvg1 is equal to RunningAvg2
+  ))
+# Compute PropInfDiff and PropValDiff but make sure it represents the proportion change from the true informative option 
+FirstChoiceRep <- FirstChoiceRep %>%
+  mutate(
+    # Compute PropValDiff 
+    PropValDiff = case_when(
+      TrueInformative == "One" ~ (RepeatRunAvg1 - RepeatRunAvg2) / RepeatRunAvg1,
+      TrueInformative == "Two" ~ (RepeatRunAvg2 - RepeatRunAvg1) / RepeatRunAvg2,
+      TrueInformative == "Equal" ~ 0,
+      TRUE ~ NA_real_  # In case there are any unexpected values
+    ),
+    
+    # Compute PropInfDiff if neg - they know more about the low info flower
+    PropInfDiff = case_when(
+      TrueInformative == "One" ~ (FlowerOneVisits - FlowerTwoVisits) / FlowerOneVisits,
+      TrueInformative == "Two" ~ (FlowerTwoVisits - FlowerOneVisits) / FlowerTwoVisits,
+      TrueInformative == "Equal" ~ 0,
+      TRUE ~ NA_real_  # In case there are any unexpected values
+    )
+  )
+#same thing but for value
+FirstChoiceRep <- FirstChoiceRep %>%
+  mutate(
+    # Compute PropInfDiff
+    PropValDiff_Value = case_when(
+      HighValueFlower == "One" ~ (RepeatRunAvg1 - RepeatRunAvg2) / RepeatRunAvg1,
+      HighValueFlower == "Two" ~ (RepeatRunAvg2 - RepeatRunAvg1) / RepeatRunAvg2,
+      HighValueFlower == "Equal" ~ 0,
+      TRUE ~ NA_real_  # In case there are any unexpected values
+    ),
+    
+    # Compute PropValDiff if neg - they know more about the low value flower
+    PropInfDiff_Value = case_when(
+      HighValueFlower == "One" ~ (FlowerOneVisits - FlowerTwoVisits) / FlowerOneVisits,
+      HighValueFlower == "Two" ~ (FlowerTwoVisits - FlowerOneVisits) / FlowerTwoVisits,
+      HighValueFlower == "Equal" ~ 0,
+      TRUE ~ NA_real_  # In case there are any unexpected values
+    )
+  )
+
+#clean up some columns we no longer need 
+FirstChoiceRep_subset <- FirstChoiceRep %>%
+  select(Bee, Horizon, Order, FlowerChoice, ColorChosen, TrueInformative, 
+         HighValueFlower, PropValDiff, PropInfDiff, PropInfDiff_Value, PropValDiff_Value,FlowerChoice)
+#FOR NOW: remove equal info rows and make a new correct informative column (1 = chose informative option)
+FirstChoiceRep_subset <- FirstChoiceRep_subset %>%
+  filter(TrueInformative != "Equal") %>%  # Remove rows where TrueInformative is "Equal"
+  mutate(ChoseInformative = ifelse(FlowerChoice == TrueInformative, 1, 0)) %>%
+  mutate(Value = ifelse(FlowerChoice == HighValueFlower, 1, 0)) %>%
+  mutate(HighInfoHighValue = ifelse(TrueInformative == HighValueFlower,1,0)) 
+
+
+
+#Model of first choice in the test phase
+FirstChoiceRepmod = glm(ChoseInformative ~ as.factor(Horizon) + Order + PropInfDiff + PropValDiff, family = binomial, data = FirstChoiceRep_subset)
+summary(FirstChoiceRepmod)
+valueRepmod = glm(Value ~ as.factor(Horizon) + as.factor(HighInfoHighValue) + PropInfDiff + Order, family = binomial, data = FirstChoiceRep_subset)
+summary(valueRepmod)
+
+
+FirstChoiceRep_subset$predicted_prob <- predict(FirstChoiceRepmod, newdata = FirstChoiceRep_subset, type = "response")
+
+ggplot(FirstChoiceRep_subset, aes(x = PropInfDiff, y = predicted_prob, color = factor(Horizon))) +
+  geom_jitter(width = 0.1, height = 0.05, alpha = 0.6) +
+  stat_smooth(method = "glm",se = FALSE) +
+  labs(x = "Proportional Information Difference", y = "Predicted Probability of Choosing Informative Flower") +
+  theme_minimal() 
+#same plot as above but value diff on x instead of info
+ggplot(FirstChoiceRep_subset, aes(x = PropValDiff, y = predicted_prob, color = factor(Horizon))) +
+  geom_jitter(width = 0, height = 0) +
+  stat_smooth(method = "glm", se = FALSE) +
+  labs(x = "Proportional Value Difference", y = "Predicted Probability of Choosing Informative Flower") +
+  theme_minimal()
+ggplot(FirstChoiceRep_subset, aes(x = factor(Horizon), y = predicted_prob)) +
+  geom_boxplot() +
+  labs(x = "Horizon", y = "Predicted Probability of Choosing Informative Flower") +
+  theme_minimal()
+# Create the boxplot
+ggplot(FirstChoiceRep_subset, aes(x = factor(Order), y = predicted_prob, fill = factor(Horizon))) +
+  geom_boxplot() +
+  labs(x = "Order in which treatment was received", y = "Probability of Choosing Informative Flower") +
+  theme_minimal()
+#plots for VALUE
+FirstChoiceRep_subset$predicted_prob_value <- predict(valueRepmod, newdata = FirstChoiceRep_subset, type = "response")
+ggplot(FirstChoiceRep_subset, aes(x = PropInfDiff_Value, y = predicted_prob_value, color = factor(Horizon))) +
+  geom_jitter(width = 0.1, height = 0.05, alpha = 0.6) +
+  stat_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE) +
+  labs(x = "Proportional Information Difference", y = "Predicted Probability of Choosing High Value Flower") +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 1)) 
+ggplot(FirstChoiceRep_subset, aes(x = as.factor(HighInfoHighValue), y = predicted_prob_value, fill = factor(Horizon))) +
+  geom_boxplot() +
+  labs(x = "Treatment", y = "Probability of Choosing High Value Flower") +
+  theme_minimal()
