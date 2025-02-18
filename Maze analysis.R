@@ -12,8 +12,9 @@ MazeData <- MazeData %>%
     Info_Treatment == "HL" & Choice1HV == "0" ~ "1",
     Info_Treatment == "EQ" & Choice1HV == "0" ~ "EQ"
   ))
-mazemod = glm(Choice1HV ~ Info_Treatment +factor(Horizon), family = binomial (link="logit"), data = MazeData)
+mazemod = glm(HighInfoChoice ~ Info_Treatment +factor(Horizon), family = binomial (link="logit"), data = MazeData)
 summary(mazemod)
+pR2(mazemod)
 
 predicted_probs <- predict(mazemod, newdata = MazeData, type = "response")
 
@@ -26,11 +27,12 @@ MazeData_condensed <- MazeData %>%
   group_by(Bee, Info_Treatment, Horizon) %>%
   summarise(
     Avg_Choice1HV = mean(Choice1HV),
-    .groups = 'drop'  # To ungroup the data
+    .groups = 'drop'  
   )
 
 mazemod2 = glm(Avg_Choice1HV ~ Info_Treatment + factor(Horizon), data = MazeData_condensed)
 summary(mazemod2)
+pR2(mazemod2)
 
 ggplot(MazeData_condensed, aes(x = factor(Info_Treatment), y = Avg_Choice1HV)) +
   geom_boxplot() +
