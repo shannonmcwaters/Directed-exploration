@@ -195,12 +195,12 @@ summary(valuemod)
 
 ####Plots####
 #Goal: Show how value difference and informational difference predict preference for Flower A.
-ggplot(FirstChoice, aes(x = PropVisits_FlowerA, y = chose_flowerA, color = as.factor(Horizon))) +
+ggplot(FirstChoice, aes(x = RelativeFamiliarity_FlowerA, y = chose_flowerA, color = as.factor(Horizon))) +
   geom_jitter(height = 0.05, width = 0.02, alpha = 0.4) +
   geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
-  geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", linewidth = 0.4) +
+  geom_vline(xintercept = 0.0, linetype = "dashed", color = "black", linewidth = 0.4) +
   geom_hline(yintercept = 0.5, linetype = "dashed", color = "black", linewidth = 0.4) +
-  labs(x = "Proportion of Past Visits to Flower A",
+  labs(x = "Relative Familiarity of flower Flower A",
        y = "Probability of Choosing Flower A",
        color = "Horizon") +
   theme_minimal()
@@ -213,28 +213,6 @@ ggplot(FirstChoice_unequal, aes(x = as.factor(Order), y = ChoseInformative, fill
   geom_hline(yintercept = 0.5, linetype = "dashed") +
   labs(x = "Test Bout (Order)", y = "Chose Informative Flower", fill = "Horizon") +
   theme_minimal()
-
-# Compute summary proportions
-summary_data <- FirstChoice_unequal %>%
-  group_by(Order, Horizon) %>%
-  summarise(
-    mean_choice = mean(ChoseInformative),
-    n = n(),
-    se = sqrt((mean_choice * (1 - mean_choice)) / n),
-    .groups = "drop"
-  )
-
-# Plot
-ggplot(summary_data, aes(x = factor(Order), y = mean_choice, fill = factor(Horizon))) +
-  geom_col(position = position_dodge(0.6), width = 0.5) +
-  geom_errorbar(aes(ymin = mean_choice - se, ymax = mean_choice + se),
-                width = 0.2, position = position_dodge(0.6)) +
-  geom_hline(yintercept = 0.5, linetype = "dashed") +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0.01)) +
-  labs(x = "Test Bout (Order)",
-       y = "Proportion Choosing Informative Flower",
-       fill = "Horizon") +
-  theme_minimal(base_size = 14)
 
 summary_bar <- FirstChoice_unequal %>%
   mutate(InformativeChoice = ifelse(ChoseInformative == 1, "Informative", "Uninformative")) %>%
