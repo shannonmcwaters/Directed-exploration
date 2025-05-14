@@ -3,6 +3,7 @@ library(tidyverse)
 library(lme4)
 library(pscl)
 library(emmeans)
+library(ggeffects)
 MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Maze%20Data%20Raw")
 
 MazeData <- MazeData %>%
@@ -31,64 +32,72 @@ LRdata <- LRdata %>%
   mutate(chose_R = ifelse(Side == "Right", "1", "0")) %>%
   mutate(RightInfo = ifelse(HighInfoChoice == "EQ", "EQ", ifelse(HighInfoChoice == "1"&Side == "Right" | HighInfoChoice == "0"& Side =="Left","HighInfo","LowInfo")))
 LRdata <- LRdata %>%
-  mutate(chose_R_numeric = as.numeric(chose_R)) %>%  # step 1
-  group_by(Bee) %>%
-  mutate(mean_chose_R = mean(chose_R_numeric, na.rm = TRUE)) %>%  # step 2 & 3
-  ungroup()
-LRmod = glm(mean_chose_R~ RightConcentrationDiff + RightInfo, data = LRdata)
+  mutate(chose_R_numeric = as.numeric(chose_R))
+LRmod = glmer(chose_R_numeric~ RightConcentrationDiff + RightInfo + Horizon + (1|Bee), family = binomial, data = LRdata)
 summary(LRmod)
-library(emmeans)
-
-# Estimated marginal means for RightInfo
-emm <- emmeans(LRmod, ~ RightInfo)
-
-# Pairwise comparisons with Tukey adjustment
-pairwise_comparisons <- contrast(emm, method = "pairwise", adjust = "tukey")
-
-summary(pairwise_comparisons)
 
 
 #glm for choosing high info in unequal info treatments
-uneq_mod = glm(mean_HighInfoChoice ~ NewConcentrationDiff + as.factor(Horizon), data = unequal)
+uneq_mod = glm(as.numeric(HighInfoChoice) ~ NewConcentrationDiff + as.factor(Horizon), family = binomial, data = unequal)
 summary(uneq_mod)
 
 
-
-#Testing choice of high or low value against horizon in equal 
-chisq.test(table(equal$Choice1HV,equal$Horizon))
-
 #Plots!!
-#UNEQUAL
+LRdata_clean <- LRdata %>%
+  filter(!is.na(RightConcentrationDiff), !is.na(chose_R_numeric)) %>%
+  mutate(
+    Horizon = as.factor(Horizon),
+    Info_Treatment = factor(Info_Treatment, levels = c("HH", "HL", "EQ"))
+  )
+# Plot
+#raw data
+ggplot(LRdata_clean, aes(x = RightConcentrationDiff, y = chose_R_numeric, color = Horizon)) +
+  geom_jitter(width = 0.05, height = 0.05, alpha = 0.4, size = 1) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", size = 0.4) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black", size = 0.4) +
+  facet_wrap(~ RightInfo) +
+  labs(
+    x = "Relative Value of Right Flower",
+    y = "Probability of Choosing Right Flower",
+    color = "Horizon"
+  ) +
+  theme_minimal(base_size = 14)
+#model based predictions
+mod <- glm(chose_R_numeric ~ RightConcentrationDiff * Horizon + RightInfo, 
+           data = LRdata_clean, family = binomial)
+
+preds <- ggpredict(mod, terms = c("RightConcentrationDiff", "Horizon", "RightInfo"))
+
+ggplot(preds, aes(x = x, y = predicted, color = group)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  facet_wrap(~ facet) +
+  labs(x = "Relative Value of Right Flower",
+       y = "Probability of Choosing Right Flower",
+       color = "Horizon", fill = "Horizon") +
+  theme_minimal(base_size = 14)
+
+
 #Chosing high info vs Horizon
-prop_data_unequal <- unequal %>%
-  group_by(Horizon, HighInfoChoice) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
-  group_by(Horizon) %>%
-  mutate(Proportion = Count / sum(Count))  # Normalize to 100%
-ggplot(prop_data_unequal, aes(x = as.factor(Horizon), y = Proportion, fill = as.factor(HighInfoChoice))) +
-  geom_bar(stat = "identity") +
-  geom_hline(yintercept = 0.50, linetype = "dashed", color = "black") +  # Add dashed line at 0.50
-  scale_fill_manual(values = c("#a6bddb", "#3690c0"), labels = c("No", "Yes")) +  # Muted blue tones
-  labs(x = "Horizon", y = "Proportion of Choices", fill = "Chose High Info") +
-  theme_minimal()
+preds_inf <- ggpredict(uneq_mod, terms = c("NewConcentrationDiff", "Horizon"))
+ggplot(preds_inf, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  labs(
+    x = "Relative Value of Informative Flower",
+    y = "Probability of Choosing Informative Flower",
+    color = "Horizon",
+    fill = "Horizon"
+  ) +
+  theme_minimal(base_size = 14)
+
 #Boxplot with horizon and conc diff
 unequal$HighInfoChoice <- as.factor(unequal$HighInfoChoice)
 unequal$Horizon <- as.factor(unequal$Horizon)
 ggplot(unequal, aes(x = NewConcentrationDiff, y = HighInfoChoice, fill = Horizon)) +
   geom_boxplot() +
   labs(x = "Concentration Difference", y = "Chose Informative", fill = "Horizon") +
-  theme_minimal()
-
-#EQUAL
-#chose high val vs horizon
-prop_data <- equal %>%
-  group_by(Horizon, Choice1HV) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
-  group_by(Horizon) %>%
-  mutate(Proportion = Count / sum(Count))  # Normalize to 100%
-ggplot(prop_data, aes(x = as.factor(Horizon), y = Proportion, fill = as.factor(Choice1HV))) +
-  geom_bar(stat = "identity") +
-  geom_hline(yintercept = 0.50, linetype = "dashed", color = "black") +  # Add dashed line at 0.50
-  scale_fill_manual(values = c("#a6bddb", "#3690c0"), labels = c("No", "Yes")) +  # Muted blue tones
-  labs(x = "Horizon", y = "Proportion of Choices", fill = "Chose High Value") +
   theme_minimal()
