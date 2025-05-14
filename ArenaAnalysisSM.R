@@ -1,42 +1,51 @@
 library(dplyr)
 library(tidyverse)
+library(ggplot2)
 ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Arena%20Data%20raw")
 
 #####################################################################
 #
 #
 #STOP HERE: 
-  # Consider the following options, which affect all subsequent calculations
-  # and graphs.
-  # Should 'problematic' bees be excluded? 
-  ArenaData2 <- subset(ArenaData, Bee!="Yellow19" & Bee!="Green83" & Bee!="Yellow46" & Bee!="Green57")
-  # Alternatively see section D.XIII.
-  #
-  # How should revisits to the same individual be counted?
-  #revisitoption <- "no reward" # counted as a visit with 0 reward
-  # revisitoption <- "not counted" # not counted as visit at all
-  # revisitoption <- "full" # counted as visit with full (intended) reward
-  #
+# Consider the following options, which affect all subsequent calculations
+# and graphs.
+# Should 'problematic' bees be excluded? 
+ArenaData2 <- subset(ArenaData, Bee!="Yellow19" & Bee!="Green83" & Bee!="Yellow46" & Bee!="Green57")
+# Alternatively see section D.XIII.
+#
+# How should revisits to the same individual be counted?
+#revisitoption <- "no reward" # counted as a visit with 0 reward
+# revisitoption <- "not counted" # not counted as visit at all
+# revisitoption <- "full" # counted as visit with full (intended) reward
+#
 #### data wrangling ####
 #Filter for columns we will actually use here
 FilteredArena <- ArenaData2 %>%
-    select(Bee,Horizon,Order,Session,Condition,InformativeColor,UninformativeColor,VideoReviewedChoices,Rewards,InformativeChoice..0.No.1.Yes.)
+  select(Bee,Horizon,Order,Session,Condition,VideoReviewedChoices,Rewards)
 #Make long version of data where each choice is a row
 Choice <- strsplit(as.character(FilteredArena$VideoReviewedChoices), split=",")
 Choices<-unlist(Choice)
 Order <- rep(FilteredArena$Order, sapply(Choice, length))
 Flowervalue <- strsplit(FilteredArena$Rewards, split=",")
 Reward <- unlist(Flowervalue)
-InformativeChoice <- strsplit(FilteredArena$InformativeChoice..0.No.1.Yes., split=",")
-Informative <- unlist(InformativeChoice)
 Bee <- rep(FilteredArena$Bee, sapply(Choice, length))
 Horizon <- rep(FilteredArena$Horizon, sapply(Choice, length))
 Session <- rep(FilteredArena$Session, sapply(Choice, length))
 Condition <- rep(FilteredArena$Condition, sapply(Choice, length))
-InformativeColor <- rep(FilteredArena$InformativeColor, sapply(Choice, length))
-UninformativeColor <- rep(FilteredArena$UninformativeColor, sapply(Choice, length))
+
 #Combine to form new dataset
-ArenaDataLong <- data.frame(Bee,Horizon,Order,Session,Condition,InformativeColor,UninformativeColor,Choices,Reward,Informative)
+ArenaDataLong <- data.frame(Bee,Horizon,Order,Session,Condition,Choices,Reward)
+
+
+# Add new column for Flower A vs. B
+ArenaDataLong <- ArenaDataLong %>%
+  mutate(
+    FlowerID = case_when(
+      Session == "Test" & Choices %in% c("1", "3", "6", "8", "14", "16") ~ "A",
+      Session == "Sample" & Choices %in% c("1", "2", "4", "5") ~ "A",
+      TRUE ~ "B"
+    )
+  )
 #Add a column that marks the number choice per bout
 ArenaDataLong <- ArenaDataLong %>%
   group_by(Bee,Order, Session) %>%
@@ -56,182 +65,191 @@ ArenaDataLong <- ArenaDataLong %>%
   ) %>%
   ungroup()
 
-
-
 ArenaDataLong <- ArenaDataLong %>%
   mutate(
-    RewardRepeat = as.numeric(RewardRepeat),    # Convert RewardRepeat to numeric
-    Informative = as.numeric(Informative)       # Convert Informative to numeric
+    RewardRepeat = as.numeric(RewardRepeat)   # Convert Informative to numeric
   )
-
-# Now calculate RunningAvg1 and RunningAvg2
-ArenaDataLong <- ArenaDataLong %>%
-  arrange(Bee, Order, HorizonChoiceNum) %>%   # Ensure data is ordered properly
-  group_by(Bee, Order) %>%                    # Group by Bee and Horizon (treatment)
-  mutate(
-    RunningSum1 = lag(cumsum(RewardRepeat * (Informative == 1)), default = 0),  # Running sum for flower type 1
-    RunningCount1 = lag(cumsum(Informative == 1), default = 0),                 # Running count for flower type 1
-    RunningAvg1 = ifelse(RunningCount1 > 0, RunningSum1 / RunningCount1, NA),   # Running avg for flower type 1
-    RunningSum2 = lag(cumsum(RewardRepeat * (Informative == 0)), default = 0),  # Running sum for flower type 0
-    RunningCount2 = lag(cumsum(Informative == 0), default = 0),                 # Running count for flower type 0
-    RunningAvg2 = ifelse(RunningCount2 > 0, RunningSum2 / RunningCount2, NA)    # Running avg for flower type 0
-  ) %>%
-  ungroup() %>%
-  select(-RunningSum1, -RunningCount1, -RunningSum2, -RunningCount2) # Remove intermediate columns
-
-#Running averages but allowing repeats to count
 ArenaDataLong <- ArenaDataLong %>%
   mutate(
-    Reward = as.numeric(Reward),
-    Informative = as.numeric(Informative))  %>%
-  arrange(Bee, Order, HorizonChoiceNum) %>%   # Ensure data is ordered properly
-  group_by(Bee, Order) %>%                    # Group by Bee and Horizon (treatment)
-  mutate(
-    RunSum1 = lag(cumsum(Reward * (Informative == 1)), default = 0),  # Running sum for flower type 1
-    RunCount1 = lag(cumsum(Informative == 1), default = 0),                 # Running count for flower type 1
-    RepeatRunAvg1 = ifelse(RunCount1 > 0, RunSum1 / RunCount1, NA),   # Running avg for flower type 1
-    RunSum2 = lag(cumsum(Reward * (Informative == 0)), default = 0),  # Running sum for flower type 0
-    RunCount2 = lag(cumsum(Informative == 0), default = 0),                 # Running count for flower type 0
-    RepeatRunAvg2 = ifelse(RunCount2 > 0, RunSum2 / RunCount2, NA)    # Running avg for flower type 0
-  ) %>%
-  ungroup() %>%
-  select(-RunSum1, -RunCount1, -RunSum2, -RunCount2) # Remove intermediate columns
-
-
-#Add color chosen an color ignored
-ArenaDataLong <- ArenaDataLong %>%
-  mutate(
-    ColorChosen = ifelse(Informative == 1, InformativeColor, UninformativeColor),
-    ColorNotChosen = ifelse(Informative == 1, UninformativeColor, InformativeColor)
+    Reward = na_if(Reward, ""),           # Convert empty strings to NA
+    Reward = na_if(Reward, "NA"),         # Convert "NA" strings to actual NA
+    Reward = as.numeric(Reward)           # Convert to numeric
   )
-#calculate true information for each flower type
 ArenaDataLong <- ArenaDataLong %>%
-  arrange(Bee, Order, HorizonChoiceNum) %>%  # Ensure the data is ordered correctly (Sample before Test)
+  arrange(Bee, Order, HorizonChoiceNum) %>%
+  
+  # Step 1: Identify first visits to each flower
+  group_by(Bee, Order, FlowerID) %>%
+  mutate(FirstVisit = !duplicated(HorizonChoiceNum)) %>%
+  ungroup() %>%
+  
+  # Step 2: Count unique visits to each flower type
   group_by(Bee, Order) %>%
   mutate(
-    FlowerOneVisits = cumsum(Informative == 1),  # Cumulative sum of visits where Informative is 1
-    FlowerTwoVisits = cumsum(Informative == 0)   # Cumulative sum of visits where Informative is 0
+    UniqueVisits_A = cumsum((FlowerID == "A") * FirstVisit),
+    UniqueVisits_B = cumsum((FlowerID == "B") * FirstVisit)
+  ) %>%
+  ungroup() %>%
+  select(-FirstVisit) %>%
+  
+  # Step 3: Compute running reward averages based on unique visits only
+  group_by(Bee, Order) %>%
+  mutate(
+    UniqueRunSum_A = lag(cumsum((Reward * (FlowerID == "A")) * (UniqueVisits_A > lag(UniqueVisits_A, default = 0))), default = 0),
+    UniqueRunCount_A = lag(UniqueVisits_A, default = 0),
+    UniqueRunAvg_A = ifelse(UniqueRunCount_A > 0, UniqueRunSum_A / UniqueRunCount_A, NA),
+    
+    UniqueRunSum_B = lag(cumsum((Reward * (FlowerID == "B")) * (UniqueVisits_B > lag(UniqueVisits_B, default = 0))), default = 0),
+    UniqueRunCount_B = lag(UniqueVisits_B, default = 0),
+    UniqueRunAvg_B = ifelse(UniqueRunCount_B > 0, UniqueRunSum_B / UniqueRunCount_B, NA)
+  ) %>%
+  ungroup() %>%
+  select(-UniqueRunSum_A, -UniqueRunCount_A, -UniqueRunSum_B, -UniqueRunCount_B)
+
+ArenaDataLong <- ArenaDataLong %>%
+  arrange(Bee, Order, HorizonChoiceNum) %>%
+  group_by(Bee, Order) %>%
+  mutate(
+    FlowerA_Visits = cumsum(FlowerID == "A"),
+    FlowerB_Visits = cumsum(FlowerID == "B")
   ) %>%
   ungroup()
 
-# Add the new column "FlowerChoice" based on the value of the "Informative" column
-ArenaDataLong <- ArenaDataLong %>%
-  mutate(FlowerChoice = case_when(
-    Informative == 1 ~ "One",  # If Informative is 1
-    Informative == 0 ~ "Two"   # If Informative is 0
+FirstChoice <- ArenaDataLong %>%
+  filter(Session == "Test", ChoiceNumber == 1)
+FirstChoice <- FirstChoice %>%
+  mutate(TrueInformative = case_when(
+    FlowerA_Visits > FlowerB_Visits ~ "B",     # More visits to A → B is less familiar
+    FlowerA_Visits < FlowerB_Visits ~ "A",     # More visits to B → A is less familiar
+    FlowerA_Visits == FlowerB_Visits ~ "Equal" # Equal visits → neither is more informative
   ))
-####Analysis####
+FirstChoice <- FirstChoice %>%
+  mutate(HighValueFlower = case_when(
+    UniqueRunAvg_A > UniqueRunAvg_B ~ "A",
+    UniqueRunAvg_A < UniqueRunAvg_B ~ "B",
+    UniqueRunAvg_A == UniqueRunAvg_B ~ "Equal"
+  ))
+FirstChoice$chose_flowerA<- ifelse(FirstChoice$FlowerID == "A", 1, 0)
+FirstChoice <- FirstChoice %>%
+  mutate(
+    # Proportional value difference from Flower A’s perspective
+    PropValDiff_FlowerA = (UniqueRunAvg_A - UniqueRunAvg_B) / (UniqueRunAvg_A + UniqueRunAvg_B),
+    
+    # Proportional visit difference from Flower A’s perspective
+    RelativeFamiliarity_FlowerA = (FlowerA_Visits - FlowerB_Visits) / (FlowerA_Visits + FlowerB_Visits)
+  )
+FirstChoice <- FirstChoice %>%
+  mutate(
+    # Value difference from informative flower's perspective
+    PropValDiff = case_when(
+      TrueInformative == "A" ~ (UniqueRunAvg_A - UniqueRunAvg_B) / (UniqueRunAvg_A + UniqueRunAvg_B),
+      TrueInformative == "B" ~ (UniqueRunAvg_B - UniqueRunAvg_A) / (UniqueRunAvg_A + UniqueRunAvg_B),
+      TrueInformative == "Equal" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    # Proportion of visits to informative flower
+    RelativeFamiliarity = case_when(
+      TrueInformative == "A" ~ (FlowerA_Visits - FlowerB_Visits) / (FlowerA_Visits + FlowerB_Visits),
+      TrueInformative == "B" ~ (FlowerB_Visits - FlowerA_Visits) / (FlowerA_Visits + FlowerB_Visits),
+      TrueInformative == "Equal" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    # Value difference from high-value flower's perspective
+    PropValDiff_Value = case_when(
+      HighValueFlower == "A" ~ (UniqueRunAvg_A - UniqueRunAvg_B) / (UniqueRunAvg_A + UniqueRunAvg_B),
+      HighValueFlower == "B" ~ (UniqueRunAvg_B - UniqueRunAvg_A) / (UniqueRunAvg_A + UniqueRunAvg_B),
+      HighValueFlower == "Equal" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    # Proportion of visits to high-value flower
+    RelativeFamiliarity_Value = case_when(
+      HighValueFlower == "A" ~ (FlowerA_Visits - FlowerB_Visits) / (FlowerA_Visits + FlowerB_Visits),
+      HighValueFlower == "B" ~ (FlowerB_Visits - FlowerA_Visits) / (FlowerA_Visits + FlowerB_Visits),
+      HighValueFlower == "Equal" ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
 
-#MAIN TEST: Do bees care about information difference?
+FirstChoice <- FirstChoice %>%
+  mutate(
+    ChoseInformative = ifelse(FlowerID == TrueInformative, 1, 0),
+    ChoseHighValue = ifelse(FlowerID == HighValueFlower, 1, 0)
+  )
+####MAIN TEST: Do bees care about information difference?####
 
 # In their first choice in the test phase, is the bee's choice
 # predicted at all by information, or only by value difference?
-#subset data fram so it's only first visits in test phase
-FirstChoice <- ArenaDataLong %>%
-  filter(Session == "Test", ChoiceNumber == 1)
-#Make a row that says what flower is more informative - 
-FirstChoice <- FirstChoice %>%
-  mutate(TrueInformative = case_when(
-    FlowerOneVisits > FlowerTwoVisits ~ "Two",  #More visits to FlowerOne
-    FlowerOneVisits < FlowerTwoVisits ~ "One",  # More visits to FlowerTwo
-    FlowerOneVisits == FlowerTwoVisits ~ "Equal"  # Equal visits to both
-  ))
-
-
-#Now for which flower is the true high value for REPEAT =0reward
-FirstChoice <- FirstChoice %>%
-  mutate(HighValueFlower = case_when(
-    RunningAvg1 > RunningAvg2 ~ "One",    # If RunningAvg1 is greater than RunningAvg2
-    RunningAvg1 < RunningAvg2 ~ "Two",    # If RunningAvg1 is less than RunningAvg2
-    RunningAvg1 == RunningAvg2 ~ "Equal"  # If RunningAvg1 is equal to RunningAvg2
-  ))
-# Compute PropInfDiff and PropValDiff but make sure it represents the proportion change from the true informative option 
-FirstChoice <- FirstChoice %>%
+FlowerAmod = glm(chose_flowerA ~ PropValDiff_FlowerA + RelativeFamiliarity_FlowerA + as.factor(Horizon), family = binomial, data = FirstChoice)
+summary(FlowerAmod)
+#For info choice - use unequal info only
+FirstChoice_unequal <- FirstChoice %>%
+  filter(TrueInformative != "Equal") %>%
   mutate(
-    # Compute PropValDiff how much more(or less) valuable is the informative flower compared to the non
-    PropValDiff = case_when(
-      TrueInformative == "One" ~ (RunningAvg1 - RunningAvg2) / RunningAvg1,
-      TrueInformative == "Two" ~ (RunningAvg2 - RunningAvg1) / RunningAvg2,
-      TrueInformative == "Equal" ~ 0,
-      TRUE ~ NA_real_  # In case there are any unexpected values
-    ),
-    
-    # Compute PropInfDiff - how many more times did they visit the non-informative flower than the informative
-    PropInfDiff = case_when(
-      TrueInformative == "One" ~ (FlowerTwoVisits - FlowerOneVisits) / FlowerTwoVisits,
-      TrueInformative == "Two" ~ (FlowerOneVisits - FlowerTwoVisits) / FlowerOneVisits,
-      TrueInformative == "Equal" ~ 0,
-      TRUE ~ NA_real_  # In case there are any unexpected values
-    )
+    Horizon = factor(Horizon),
+    Order = factor(Order)
   )
-#same thing but for value
-FirstChoice <- FirstChoice %>%
-  mutate(
-    # Compute PropInfDiff how much more valuable is the high value flower
-    PropValDiff_Value = case_when(
-      HighValueFlower == "One" ~ (RunningAvg1 - RunningAvg2) / RunningAvg1,
-      HighValueFlower == "Two" ~ (RunningAvg2 - RunningAvg1) / RunningAvg2,
-      HighValueFlower == "Equal" ~ 0,
-      TRUE ~ NA_real_  # In case there are any unexpected values
-    ),
-    
-    # Compute PropValDiff how many more (or fewer) times did they visit the high value flower in proportion to the low
-    PropInfDiff_Value = case_when(
-      HighValueFlower == "One" ~ (FlowerOneVisits - FlowerTwoVisits) / FlowerOneVisits,
-      HighValueFlower == "Two" ~ (FlowerTwoVisits - FlowerOneVisits) / FlowerTwoVisits,
-      HighValueFlower == "Equal" ~ 0,
-      TRUE ~ NA_real_  # In case there are any unexpected values
-    )
-  )
-
-#clean up some columns we no longer need 
-FirstChoice_subset <- FirstChoice %>%
-  select(Bee, Horizon, Order, FlowerChoice, ColorChosen, TrueInformative, 
-         HighValueFlower, PropValDiff, PropInfDiff, PropInfDiff_Value, PropValDiff_Value,FlowerChoice)
-#FOR NOW: remove equal info rows and make a new correct informative column (1 = chose informative option)
-FirstChoice_subset <- FirstChoice_subset %>%
-  filter(TrueInformative != "Equal") %>%  # Remove rows where TrueInformative is "Equal"
-  mutate(ChoseInformative = ifelse(FlowerChoice == TrueInformative, 1, 0)) %>%
-  mutate(Value = ifelse(FlowerChoice == HighValueFlower, 1, 0)) %>%
-  mutate(HighInfoHighValue = ifelse(TrueInformative == HighValueFlower,1,0)) 
-  
-  
-
-#Model of first choice in the test phase
-firstchoicemod = glm(ChoseInformative ~ as.factor(Horizon) + as.factor(Order) + PropInfDiff + PropValDiff, family = binomial, data = FirstChoice_subset)
-summary(firstchoicemod)
-valuemod = glm(Value ~ as.factor(Horizon) + PropInfDiff_Value + PropValDiff_Value + as.factor(Order), family = binomial, data = FirstChoice_subset)
+infomod = glm(ChoseInformative ~ Horizon + Order + PropValDiff, family = binomial, data = FirstChoice_unequal)
+summary(infomod)
+valuemod = glm(ChoseHighValue ~ Horizon + Order +RelativeFamiliarity_Value, family = binomial, data = FirstChoice)
 summary(valuemod)
 
-
-#Plot results INFO
-FirstChoice_subset$predicted_prob <- predict(firstchoicemod, newdata = FirstChoice_subset, type = "response")
-ggplot(FirstChoice_subset, aes(x = PropInfDiff, y = predicted_prob, color = factor(Horizon))) +
-  geom_jitter(width = 0.1, height = 0.05, alpha = 0.6) +
-  stat_smooth(method = "glm",se = FALSE) +
-  labs(x = "Proportional Information Difference", y = "Predicted Probability of Choosing Informative Flower") +
-  theme_minimal() 
-#same plot as above but value diff on x instead of info
-ggplot(FirstChoice_subset, aes(x = PropValDiff, y = predicted_prob, color = factor(Horizon))) +
-  geom_jitter(width = 0, height = 0) +
-  stat_smooth(method = "glm", se = FALSE) +
-  labs(x = "Proportional Value Difference", y = "Predicted Probability of Choosing Informative Flower") +
+####Plots####
+#Goal: Show how value difference and informational difference predict preference for Flower A.
+ggplot(FirstChoice, aes(x = PropVisits_FlowerA, y = chose_flowerA, color = as.factor(Horizon))) +
+  geom_jitter(height = 0.05, width = 0.02, alpha = 0.4) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", linewidth = 0.4) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black", linewidth = 0.4) +
+  labs(x = "Proportion of Past Visits to Flower A",
+       y = "Probability of Choosing Flower A",
+       color = "Horizon") +
   theme_minimal()
-ggplot(FirstChoice_subset, aes(x = factor(Horizon), y = predicted_prob, fill = factor(HighInfoHighValue))) +
-  geom_boxplot() +
-  labs(x = "Horizon", y = "Predicted Probability of Choosing Informative Flower") +
-  theme_minimal()
-# boxplot of horizon and order
-ggplot(FirstChoice_subset, aes(x = factor(Order), y = predicted_prob, fill = factor(Horizon))) +
-  geom_boxplot() +
-  labs(x = "Order in which treatment was received", y = "Probability of Choosing Informative Flower") +
-  theme_minimal()
-#plots for VALUE
-FirstChoice_subset$predicted_prob_value <- predict(valuemod, newdata = FirstChoice_subset, type = "response")
-plot(FirstChoice_subset$PropInfDiff_Value, 
-     FirstChoice_subset$predicted_prob_value, 
-     xlab = "Proportional Information Difference", 
-     ylab = "Predicted Probability Value") 
-abline(lm(predicted_prob_value ~ PropInfDiff_Value, data = FirstChoice_subset), col = "red", lwd = 2)
 
+#Show how ChoseInformative varies across Horizon, Order, and  Value Difference.
+ggplot(FirstChoice_unequal, aes(x = as.factor(Order), y = ChoseInformative, fill = as.factor(Horizon))) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6, width = 0.6, position = position_dodge(width = 0.7)) +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.7),
+              shape = 21, alpha = 0.5, size = 2) +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  labs(x = "Test Bout (Order)", y = "Chose Informative Flower", fill = "Horizon") +
+  theme_minimal()
 
+# Compute summary proportions
+summary_data <- FirstChoice_unequal %>%
+  group_by(Order, Horizon) %>%
+  summarise(
+    mean_choice = mean(ChoseInformative),
+    n = n(),
+    se = sqrt((mean_choice * (1 - mean_choice)) / n),
+    .groups = "drop"
+  )
+
+# Plot
+ggplot(summary_data, aes(x = factor(Order), y = mean_choice, fill = factor(Horizon))) +
+  geom_col(position = position_dodge(0.6), width = 0.5) +
+  geom_errorbar(aes(ymin = mean_choice - se, ymax = mean_choice + se),
+                width = 0.2, position = position_dodge(0.6)) +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0.01)) +
+  labs(x = "Test Bout (Order)",
+       y = "Proportion Choosing Informative Flower",
+       fill = "Horizon") +
+  theme_minimal(base_size = 14)
+
+summary_bar <- FirstChoice_unequal %>%
+  mutate(InformativeChoice = ifelse(ChoseInformative == 1, "Informative", "Uninformative")) %>%
+  group_by(Order, Horizon, InformativeChoice) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Order, Horizon) %>%
+  mutate(prop = n / sum(n))
+ggplot(summary_bar, aes(x = factor(Order), y = prop, fill = InformativeChoice)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~Horizon, labeller = label_both) +  # Adds "Horizon = 2", etc.
+  scale_fill_manual(values = c("Informative" = "#3690c0", "Uninformative" = "#a6bddb")) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
+  labs(
+    x = "Test Bout (Order)",
+    y = "Proportion of Choices",
+    fill = "Choice"
+  ) +
+  theme_minimal(base_size = 14)
