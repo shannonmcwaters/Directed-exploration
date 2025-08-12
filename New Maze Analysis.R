@@ -88,7 +88,7 @@ LRdata_clean <- LRdata %>%
 
 # Plot A: Logistic regression curves by familiarity
 p1 <- ggplot(LRdata_clean, aes(x = RightConcentrationDiff, y = chose_R_numeric)) +
-  geom_jitter(width = 0.05, height = 0, alpha = 0.4, size = 1) +
+  geom_jitter(width = 0.05, height = 0, alpha = 0.4, size = 2.5) +  # increased size from 1 to 2.5
   geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
   facet_wrap(~ Familiarity) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
