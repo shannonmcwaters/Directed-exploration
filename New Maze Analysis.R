@@ -57,7 +57,7 @@ summary(LRmod)
 
 #glm for choosing high info in unequal info treatments
 uneq_mod = glmer(as.numeric(HighInfoChoice) ~ NewConcentrationDiff + as.factor(Horizon) + (1|Bee), family = binomial, data = unequal)
-uneq_mod = glm(as.numeric(HighInfoChoice) ~ NewConcentrationDiff + as.factor(Horizon), family = binomial, data = unequal)
+#uneq_mod = glm(as.numeric(HighInfoChoice) ~ NewConcentrationDiff + as.factor(Horizon), family = binomial, data = unequal)
 summary(uneq_mod)
 
 
