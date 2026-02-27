@@ -1,4 +1,3 @@
-## Header
 ## Annotations
 ## Power analysis?
 ## Simulated data
@@ -19,7 +18,10 @@ MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-
 
 # Data formatting ---------------------------------
 
-# Adding a column 'HighInfoChoice' indicating 
+# Adding a column 'HighInfoChoice' indicating which choice (flower type) the bees
+# had more information about. In the 'EQ' treatment, bees have the same amount of
+# information about both types. 
+####!!!!!! Is HighInfo 'High information' or 'High informativeness'? These are opposites ------------
 MazeData <- MazeData %>%
   mutate(HighInfoChoice = case_when(
     Info_Treatment == "HH" & Choice1HV == "0" ~ "0",
@@ -30,18 +32,25 @@ MazeData <- MazeData %>%
     Info_Treatment == "EQ" & Choice1HV == "1" ~ "EQ"
   ))
 
+# Separating the data into the dataset with equal or unequal information about the 
+# two choices
 unequal <- MazeData[MazeData$Info_Treatment %in% c("HH", "HL"), ]
 equal <- MazeData[MazeData$Info_Treatment %in% "EQ", ]
+# When bees have more information about one flower type, we define the concentration
+# difference as (High Information - Low Information) 
 unequal <- unequal %>%
   mutate(NewConcentrationDiff = ifelse(Info_Treatment == "HL", -ConcentrationDifference, ConcentrationDifference))
 
+# Calculate for each bee in what proportion of choices they chose the
+# 'High Information' option
 unequal <- unequal %>%
   mutate(HighInfoChoice_num = as.numeric(HighInfoChoice)) %>%
   group_by(Bee) %>%
   mutate(mean_HighInfoChoice = mean(HighInfoChoice_num, na.rm = TRUE)) %>%
   ungroup()
 
-#make data frame for looking at chose left or right
+# Make data frame for looking at chose left or right
+### !!!! Why is this a separate dataframe?
 LRdata <- MazeData
 LRdata <- LRdata %>%
   mutate(RightConcentrationDiff = ifelse(Choice1HV == "1" & Side == "Right" | Choice1HV == "0" & Side == "Left", ConcentrationDifference, -ConcentrationDifference)) %>%
