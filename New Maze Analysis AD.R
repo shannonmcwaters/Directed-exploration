@@ -1,4 +1,3 @@
-## Annotations
 ## Power analysis?
 ## Simulated data
 
@@ -9,9 +8,16 @@
 # Data analysis & graphs 
 
 # Packages used ---------------------
-library(tidyverse)
-library(lme4)
+library(tidyverse) # Data handling/converting
+library(lme4) # Linear models
 library(ggeffects)
+library(patchwork) # For combining graphs
+library(sjPlot) # For nice table output
+library(viridis)
+
+colorsbees <- viridis(length(unique(MazeData$Bee)), begin = 0.2, alpha = 0.5)
+colorsconc <- c("seagreen", "lightgreen", "white")
+
 
 # Importing data for experiment 1 directly from github -----------------------
 MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Maze%20Data%20Raw")
@@ -32,39 +38,18 @@ MazeData <- MazeData %>%
     Info_Treatment == "EQ" & Choice1HV == "1" ~ "EQ"
   ))
 
-# Separating the data into the dataset with equal or unequal information about the 
-# two choices
-unequal <- MazeData[MazeData$Info_Treatment %in% c("HH", "HL"), ]
-equal <- MazeData[MazeData$Info_Treatment %in% "EQ", ]
 # When bees have more information about one flower type, we define the concentration
 # difference as (High Information - Low Information) 
-unequal <- unequal %>%
-  mutate(NewConcentrationDiff = ifelse(Info_Treatment == "HL", -ConcentrationDifference, ConcentrationDifference))
+MazeData <- MazeData %>%
+    mutate(HighInfoConcentrationDiff = ifelse(Info_Treatment == "HL", -ConcentrationDifference, ifelse(Info_Treatment == "EG", NA, ConcentrationDifference)))
 
-# Calculate for each bee in what proportion of choices they chose the
-# 'High Information' option
-unequal <- unequal %>%
-  mutate(HighInfoChoice_num = as.numeric(HighInfoChoice)) %>%
-  group_by(Bee) %>%
-  mutate(mean_HighInfoChoice = mean(HighInfoChoice_num, na.rm = TRUE)) %>%
-  ungroup()
-
-# Make data frame for looking at chose left or right
-### !!!! Why is this a separate dataframe?
-LRdata <- MazeData
-LRdata <- LRdata %>%
+# We also calculate the concentration difference relative to the flower on the right,
+# as well as the information they have about the flower on the right
+MazeData <- MazeData %>%
   mutate(RightConcentrationDiff = ifelse(Choice1HV == "1" & Side == "Right" | Choice1HV == "0" & Side == "Left", ConcentrationDifference, -ConcentrationDifference)) %>%
   mutate(chose_R = ifelse(Side == "Right", "1", "0")) %>%
   mutate(RightInfo = ifelse(HighInfoChoice == "EQ", "EQ", ifelse(HighInfoChoice == "1"&Side == "Right" | HighInfoChoice == "0"& Side =="Left","HighInfo","LowInfo")))
-LRdata <- LRdata %>%
-  mutate(chose_R_numeric = as.numeric(chose_R))
-LRmod = glmer(chose_R_numeric~ RightConcentrationDiff + RightInfo + (1|Bee), family = binomial, data = LRdata)
-summary(LRmod)
-LRmod_int = glmer(chose_R_numeric~ RightConcentrationDiff * Horizon + RightInfo + (1|Bee), family = binomial, data = LRdata)
-summary(LRmod_int)
-
-
-LRdata <- LRdata %>%
+MazeData <- MazeData %>%
   mutate(
     Familiarity = case_when(
       RightInfo == "EQ" ~ 0,
@@ -73,47 +58,20 @@ LRdata <- LRdata %>%
       TRUE ~ NA_real_  # for safety in case of unexpected values
     )
   )
-LRequal <- LRdata[LRdata$Info_Treatment %in% "EQ", ]
-LRmod = glmer(chose_R_numeric~ RightInfo + RightConcentrationDiff * as.factor(Horizon)+ (1|Bee), family = binomial, data = LRdata)
-summary(LRmod)
-
-
-#glm for choosing high info in unequal info treatments
-uneq_mod = glmer(as.numeric(HighInfoChoice) ~ NewConcentrationDiff + as.factor(Horizon) + (1|Bee), family = binomial, data = unequal)
-#uneq_mod = glm(as.numeric(HighInfoChoice) ~ NewConcentrationDiff + as.factor(Horizon), family = binomial, data = unequal)
-summary(uneq_mod)
-
-
-#Plots!!
-library(patchwork)
-
-# Step 1: Summarize per-bee average choice
-bee_summary <- LRdata %>%
-  group_by(Bee) %>%
-  summarise(
-    mean_chose_R = mean(chose_R_numeric, na.rm = TRUE),
-    RightInfo = first(RightInfo)
-  ) %>%
-  mutate(
-    Familiarity = factor(RightInfo,
-                         levels = c("HighInfo", "EQ", "LowInfo"),
-                         labels = c("Low Familiarity", "Equal", "High Familiarity"))
-  )
-
-# Step 2: Clean raw data and recode RightInfo as Familiarity
-LRdata_clean <- LRdata %>%
-  filter(!is.na(RightConcentrationDiff), !is.na(chose_R_numeric)) %>%
-  mutate(
-    Familiarity = factor(RightInfo,
-                         levels = c("HighInfo", "EQ", "LowInfo"),
-                         labels = c("Low Familiarity", "Equal", "High Familiarity"))
+# Recoding 'High Informativeness' as 'Low Familiarity' and vice versa
+MazeData <- MazeData %>%
+  mutate(chose_R_numeric = as.numeric(chose_R)) %>%
+  mutate(RightFamiliarity = factor(RightInfo,
+                       levels = c("HighInfo", "EQ", "LowInfo"),
+                       labels = c("Low Familiarity", "Equal", "High Familiarity"))
   )
 
 # Plot A: Logistic regression curves by familiarity
-p1 <- ggplot(LRdata_clean, aes(x = RightConcentrationDiff, y = chose_R_numeric)) +
+# p1 <- 
+ggplot(MazeData, aes(x = RightConcentrationDiff, y = chose_R_numeric)) +
   geom_jitter(width = 0.05, height = 0, alpha = 0.4, size = 2.5) +  # increased size from 1 to 2.5
   geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
-  facet_wrap(~ Familiarity) +
+  facet_wrap(~ RightFamiliarity) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
   geom_hline(yintercept = 0.5, linetype = "dashed", color = "black", linewidth = 0.4) +
   labs(
@@ -121,6 +79,34 @@ p1 <- ggplot(LRdata_clean, aes(x = RightConcentrationDiff, y = chose_R_numeric))
     y = "Probability of Going Right"
   ) +
   theme_minimal(base_size = 14)
+
+# Experimenting with distinguishing by bee and/or adding bee averages
+# x-axis values can only be -1.75, -0.75, + 0.75, or +1.75
+plot(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightConcentrationDiff, factor = 0.2)
+     , data = MazeData
+     , col = colorsbees[as.factor(MazeData$Bee)]
+     , pch = 19)
+
+# Reverse plot
+ggplot(MazeData, aes(x = as.numeric(RightFamiliarity), y = chose_R_numeric)) +
+  geom_jitter(width = 0.05, height = 0, alpha = 0.4, size = 2.5) +  # increased size from 1 to 2.5
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  facet_wrap(~ RightConcentrationDiff) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black", linewidth = 0.4) +
+  labs(
+    x = "Relative Familiarity of Right Flower",
+    y = "Probability of Going Right"
+  ) +
+  theme_minimal(base_size = 14)
+
+# Summarize per-bee average choice
+bee_summary <- MazeData %>%
+  group_by(Bee) %>%
+  summarise(
+    mean_chose_R = mean(chose_R_numeric, na.rm = TRUE)
+    #, add an equal vs unequal column?
+  )
 
 # Plot B: Boxplot of mean right choices per bee
 p2 <- ggplot(bee_summary, aes(x = Familiarity, y = mean_chose_R)) +
@@ -134,7 +120,26 @@ p2 <- ggplot(bee_summary, aes(x = Familiarity, y = mean_chose_R)) +
   theme_minimal(base_size = 14)
 
 # Combine plots side by side
-p1 / p2
+p1 
+/ p2
+
+
+LRmod <- glmer(chose_R_numeric~ RightConcentrationDiff + RightInfo + (1|Bee), family = binomial, data = MazeData)
+summary(LRmod)
+
+LRmod_int <- glmer(chose_R_numeric~ RightConcentrationDiff * Horizon + RightInfo + (1|Bee), family = binomial, data = MazeData)
+summary(LRmod_int)
+LRmod <- glmer(chose_R_numeric~ RightInfo + RightConcentrationDiff * as.factor(Horizon)+ (1|Bee), family = binomial, data = MazeData)
+summary(LRmod)
+
+#glm for choosing high info in unequal info treatments
+uneq_mod = glmer(as.numeric(HighInfoChoice) ~ HighInfoConcentrationDiff + as.factor(Horizon) + (1|Bee), family = binomial, data = MazeData)
+summary(uneq_mod)
+
+
+
+
+
 
 
 
@@ -198,7 +203,6 @@ ggplot(unequal, aes(x = NewConcentrationDiff, y = HighInfoChoice, fill = Horizon
 
 
 # Use tab_model to produce a well-formatted HTML/Word/LaTeX table
-library(sjPlot)
 tab_model(LRmod,
           show.re.var = TRUE,
           pred.labels = c("Intercept",
