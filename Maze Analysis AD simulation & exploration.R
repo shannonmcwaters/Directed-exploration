@@ -926,8 +926,56 @@ power.z.logistic(beta1 = glm_par2_full,
 #HighInfoChoice is reponse variable
 #HighInfoConcentrationDiff is reward
 #Horizon is really factor of interest
+
+## Generative model ----------------------------------
+# We use the parameters above, intercept, slope_value, slope_familiarity, and slope_valxfam
+# as 'default', i.e. with horizon = 1. 
+# If there is random exploration , then bees should be more likely to make random decisions
+# with longer horizons. We model this as an interaction between reward and horizon,
+# since reward will matter less if there is more random exploration in longer horizons.
+rnd_expl_simpar <- 0.4
+# Directed exploration on the other hand implies deliberate, i.e. adaptive, 
+# information seeking, in other words bees should particularly choose less familiar
+# flowers in longer horizons. 
+dir_expl_simpar <- 0.2
+# Now we generate data both for horizon = 1 (essentially as above) and for horizon 
+# = 6 (with the new interactions). We code horizon = 6 as '1' in the model, thus
+# the exploration parameters simply get added to the parameters multiplied with 
+# the factor - reward or familiarity. 
+
+# Horizon 1
+N_sim <- 5000
+valuediffs <- runif(N_sim, min = -2, max = 2)
+famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
+bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
+choices_simdata <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercept, slope_value, slope_familiarity, slope_valxfam))
+simdata_h1 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 0)
+
+# Horizon 6
+valuediffs <- runif(N_sim, min = -2, max = 2)
+famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
+bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
+choices_simdata <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercept, slope_value+rnd_expl_simpar, slope_familiarity+dir_expl_simpar, slope_valxfam))
+simdata_h6 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 1)
+
+# Now joining the two datasets together
+simdata <- rbind(simdata_h1, simdata_h6)
+# Some data formatting to match empirical data
+simdata$chose_R_numeric <- as.numeric(ifelse(simdata$choice == "right", "1", "0"))
+simdata$RightFamiliarity <- factor(
+  ifelse(simdata$famdiffs == 0, "Equal"
+         , ifelse(simdata$famdiffs > 0, "High Familiarity"
+                  , "Low Familiarity")
+  ),
+  levels = c("Low Familiarity", "Equal", "High Familiarity")
+)
+
 ## Model and stat results table ---------------------------------
-dat <- MazeData
+ifelse(showsim
+       , dat <- simdata
+       , dat <- MazeData
+)
+
 rndExploration_mod <- glm(chose_R_numeric ~ RightConcentrationDiff * Horizon, family = binomial, data = dat)
 summary(rndExploration_mod)
 tab_model(rndExploration_mod
@@ -939,6 +987,21 @@ tab_model(rndExploration_mod
           )
           , dv.labels = "Effect on probability of choosing right flower"
 )
+dirExploration_mod <- glm(chose_R_numeric ~ famdiffs * Horizon, family = binomial, data = dat)
+summary(dirExploration_mod)
+tab_model(dirExploration_mod
+          , show.re.var = TRUE
+          , pred.labels = c("Intercept"
+                            , "Familiarity Difference (right - left)"
+                            , "Horizon"
+                            , "Interaction Fam Diff x Horizon"
+          )
+          , dv.labels = "Effect on probability of choosing right flower"
+)
+
+
+
+
 dirExploration_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, family = binomial, data = dat)
 summary(dirExploration_mod)
 tab_model(dirExploration_mod
