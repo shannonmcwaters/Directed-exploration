@@ -16,7 +16,7 @@ library(pwrss)
 
 # Decide whether to work with simulated or real data ------------------
 # What do we want:
-showsim <- TRUE
+showsim <- FALSE
 
 # Importing data for experiment 1 directly from github -----------------------
 MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Maze%20Data%20Raw")
@@ -949,14 +949,14 @@ valuediffs <- runif(N_sim, min = -2, max = 2)
 famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
 bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
 choices_simdata <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercept, slope_value, slope_familiarity, slope_valxfam))
-simdata_h1 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 0)
+simdata_h1 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 1)
 
 # Horizon 6
 valuediffs <- runif(N_sim, min = -2, max = 2)
 famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
 bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
 choices_simdata <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercept, slope_value+rnd_expl_simpar, slope_familiarity+dir_expl_simpar, slope_valxfam))
-simdata_h6 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 1)
+simdata_h6 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 6)
 
 # Now joining the two datasets together
 simdata <- rbind(simdata_h1, simdata_h6)
@@ -970,11 +970,34 @@ simdata$RightFamiliarity <- factor(
   levels = c("Low Familiarity", "Equal", "High Familiarity")
 )
 
+# 'HighInfo' in the original data is the 'highly informative', thus
+# low familiarity choice. 
+simdata <- simdata %>%
+  mutate(HighInfoChoice = case_when(
+    chose_R_numeric == "0" & RightFamiliarity == "High Familiarity" ~ 1,
+    chose_R_numeric == "1" & RightFamiliarity == "High Familiarity" ~ 0,
+    chose_R_numeric == "0" & RightFamiliarity == "Low Familiarity" ~ 0,
+    chose_R_numeric == "1" & RightFamiliarity == "Low Familiarity" ~ 1,
+    chose_R_numeric == "0" & RightFamiliarity == "Equal" ~ NA,
+    chose_R_numeric == "1" & RightFamiliarity == "Equal" ~ NA
+  ))
+
+# When bees have different amounts of information about one flower type, we 
+# define the concentration difference as (High Info - Low Info(rmativeness)) 
+simdata <- simdata %>%
+  mutate(HighInfoConcentrationDiff = 
+           ifelse(RightFamiliarity == "High Familiarity", -RightConcentrationDiff
+                  , ifelse(RightFamiliarity == "Equal", NA
+                           , RightConcentrationDiff)))
+
+
 ## Model and stat results table ---------------------------------
 ifelse(showsim
        , dat <- simdata
        , dat <- MazeData
 )
+
+dat$Horizon <- as.factor(dat$Horizon)
 
 rndExploration_mod <- glm(chose_R_numeric ~ RightConcentrationDiff * Horizon, family = binomial, data = dat)
 summary(rndExploration_mod)
@@ -1000,11 +1023,9 @@ tab_model(dirExploration_mod
 )
 
 
-
-
-dirExploration_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, family = binomial, data = dat)
-summary(dirExploration_mod)
-tab_model(dirExploration_mod
+dirExpl_HI_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, family = binomial, data = dat)
+summary(dirExpl_HI_mod)
+tab_model(dirExpl_HI_mod
           , show.re.var = TRUE
           , pred.labels = c("Intercept"
                             , "Reward Difference (unfamiliar - familiar)"
@@ -1022,7 +1043,7 @@ ggplot(dat, aes(x = HighInfoConcentrationDiff, y = HighInfoChoice)) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
   geom_hline(yintercept = 0.5, linetype = "dashed", color = "black", linewidth = 0.4) +
   labs(
-    x = "Relative Value of Right Flower",
+    x = "Relative Value of Unfamiliar Flower",
     y = "Probability of Choosing Unfamiliar Flower"
   ) +
   theme_minimal(base_size = 14)
@@ -1046,47 +1067,47 @@ plot(NULL
 )
 axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are
 # Bottom axis label for all panels
-mtext("Chose Right", 2, 3)
+mtext("Chose Low Familiarity Option", 2, 3)
 # Gridlines
 abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
 abline(v = 0, col = "grey", lty = 2, lwd = 1)
 # GLM - model and extracting estimates
-rndExpl_mod <- glm(chose_R_numeric ~ RightConcentrationDiff, family = binomial, data = dat)
-interc <- rndExpl_mod$coefficients[[1]]
-par1 <- rndExpl_mod$coefficients[[2]]
+H1_Expl_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff, family = binomial, data = dat)
+interc <- H1_Expl_mod$coefficients[[1]]
+par1 <- H1_Expl_mod$coefficients[[2]]
 ose <- round(exp(par1),1)
-ose_sd <- round(exp(par1+summary(rndExpl_mod)$coefficients[2,2]) - ose, 1)
-pvalue <- round(summary(rndExpl_mod)$coefficients[2,4], 3)
+ose_sd <- round(exp(par1+summary(H1_Expl_mod)$coefficients[2,2]) - ose, 1)
+pvalue <- round(summary(H1_Expl_mod)$coefficients[2,4], 3)
 int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2)
-int_sd <- round(probs_from_pars(0, interc+summary(rndExpl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
+int_sd <- round(probs_from_pars(0, 0, interc+summary(H1_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Extracting uncertainty
-fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(rndExpl_mod))
+fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H1_Expl_mod))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, fit_covar_matrix[i,1], fit_covar_matrix[i,2]), from = -2, to = 2
+  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
         , col = alpha(colorshor[1], 0.05)
         , lwd = 3
   )
 }
 # Original data points with slight jitter
-points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightConcentrationDiff, factor = 1)
+points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
        , data = d_graph
        , pch = 19
        , col = alpha(colorshor[1], 0.5)
        , cex = 1.5
 )
 # Plotting fit line
-curve(probs_from_pars(x, interc, par1), from = -2, to = 2
+curve(probs_from_pars(x, 0, interc, par1, 0, 0), from = -2, to = 2
       , add = TRUE
       , col = colorshor[1]
       , lwd = 5)
 # Text labels for panel
-overall <- round(mean(d_graph$chose_R_numeric), 2)
-samples <- length(d_graph$chose_R_numeric)
+overall <- round(mean(d_graph$HighInfoChoice), 2)
+samples <- length(d_graph$HighInfoChoice)
 text(x = -2, y = 1.13, labels = paste("N = ", samples), col = colorshor[1], cex = 0.7, adj = 0)
 text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue), cex = 0.7, col = colorshor[1], adj = 0)
 text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd), cex = 0.7, col = colorshor[1], adj = 0)
-samples2 <- table(d_graph$RightConcentrationDiff)
+samples2 <- table(d_graph$HighInfoConcentrationDiff)
 text(x = -1.75, y =-0.1, labels = paste("n=", samples2[1]), col = colorshor[1])
 text(x = -0.75, y =-0.1, labels = paste("n=", samples2[2]), col = colorshor[1])
 text(x = 0.75, y =-0.1, labels = paste("n=", samples2[3]), col = colorshor[1])
@@ -1106,40 +1127,40 @@ axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are
 abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
 abline(v = 0, col = "grey", lty = 2, lwd = 1)
 # GLM - model and extracting estimates
-chooseRmod <- glm(chose_R_numeric ~ RightConcentrationDiff, family = binomial, data = d_graph)
-interc <- chooseRmod$coefficients[[1]]
-par1 <- chooseRmod$coefficients[[2]]
+H6_Expl_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff, family = binomial, data = d_graph)
+interc <- H6_Expl_mod$coefficients[[1]]
+par1 <- H6_Expl_mod$coefficients[[2]]
 ose <- round(exp(par1),1)
-ose_sd <- round(exp(par1+summary(chooseRmod)$coefficients[2,2]) - ose, 1)
-pvalue <- round(summary(chooseRmod)$coefficients[2,4], 3)
-int <- round(probs_from_pars(0, interc, par1), 2)
-int_sd <- round(probs_from_pars(0, interc+summary(chooseRmod)$coefficients[1,2], par1) - int, 2)
+ose_sd <- round(exp(par1+summary(H6_Expl_mod)$coefficients[2,2]) - ose, 1)
+pvalue <- round(summary(H6_Expl_mod)$coefficients[2,4], 3)
+int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2)
+int_sd <- round(probs_from_pars(0, 0, interc+summary(H6_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Bayesian model and extracting estimates
-fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseRmod))
+fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H6_Expl_mod))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2]), from = -2, to = 2
+  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
         , col = alpha(colorshor[2], 0.1)
         , lwd = 3
   )
 }
 # Original data points with slight jitter
-points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightConcentrationDiff, factor = 1)
+points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
        , data = d_graph
        , pch = 19
        , col = alpha(colorshor[2], 0.5)
        , cex = 1.5
 )
-curve(probs_from_pars(x, ?, interc, par1), from = -2, to = 2
+curve(probs_from_pars(x, 0, interc, par1, 0, 0), from = -2, to = 2
       , add = TRUE
       , col = colorshor[2]
       , lwd = 5)
-overall <- round(mean(d_graph$chose_R_numeric), 2)
-samples <- length(d_graph$chose_R_numeric)
+overall <- round(mean(d_graph$HighInfoChoice), 2)
+samples <- length(d_graph$HighInfoChoice)
 text(x = -2, y = 1.13, labels = paste("N = ", samples), col = colorshor[2], cex = 0.7, adj = 0)
 text(x = -2, y = 1.1, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue), cex = 0.7, col = colorshor[2], adj = 0)
 text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd), cex = 0.7, col = colorshor[2], adj = 0)
-samples2 <- table(d_graph$RightConcentrationDiff)
+samples2 <- table(d_graph$HighInfoConcentrationDiff)
 text(x = -1.75, y =-0.1, labels = paste("n=", samples2[1]), col = colorshor[2])
 text(x = -0.75, y =-0.1, labels = paste("n=", samples2[2]), col = colorshor[2])
 text(x = 0.75, y =-0.1, labels = paste("n=", samples2[3]), col = colorshor[2])
@@ -1153,14 +1174,52 @@ mtext("Concentration Difference", 1, 2, outer = TRUE)
 
 
 ### Other graphs --------------------------------
+par(mfrow=c(1,1))
 
 # Experimenting with distinguishing by bee and/or adding bee averages
 # x-axis values can only be -1.75, -0.75, + 0.75, or +1.75
+par(oma = c(0,0,0,0), mar = c(5,5,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
 plot(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightConcentrationDiff, factor = 0.2)
      , data = dat
-     , col = colorsbees[as.factor(MazeData$Bee)]
+     , col = colorsbees[as.factor(dat$Bee)]
      , pch = 19
+     , ylab = "Chose Right"
+     , xlab = "Concentration Difference"
      )
+
+# Each bee is exposed to a different combination of choices - the sample size overall
+# is too low for these to balance out well. 
+par(mfrow=c(2,1))
+par(oma = c(6,4,0,0), mar = c(4,2,1,1), mgp=c(3, 1, 0), las=2) # bottom, left, top, right
+relative_freq <- apply(table(dat$RightConcentrationDiff, dat$Bee), 2, function(x) x / sum(x))
+midpoints <- barplot(relative_freq
+        , col = viridis(4)
+        , xlab = "Bee ID"
+#        , ylab = "Proportion Choices in each condition"
+        , xaxt = 'n'
+        )
+axis(1, labels = colnames(relative_freq), at = midpoints, cex.axis = 0.5)
+mtext("Right Option", 1, 4, las = 0)
+mtext("Proportion Choices in each condition", 2, 2, las = 0, outer = TRUE)
+
+relative_freq <- apply(table(dat$HighInfoConcentrationDiff, dat$Bee), 2, function(x) x / sum(x))
+midpoints <- barplot(relative_freq
+                     , col = viridis(4)
+                     , xlab = "Bee ID"
+#                     , ylab = "Proportion Choices in each condition"
+                     , xaxt = 'n'
+)
+axis(1, labels = colnames(relative_freq), at = midpoints, cex.axis = 0.5)
+mtext("Informative (low familiarity) Option", 1, 4, las = 0)
+legend(26, -0.6
+       , legend = c(-1.75, -0.75, 0.75, 1.75)
+       , title = "Conc. Diff."
+       , col = viridis(4)
+       , pch = 15
+       , xpd = NA)
+
+
+
 
 # Reverse plot
 ggplot(dat, aes(x = as.numeric(RightFamiliarity), y = chose_R_numeric)) +
