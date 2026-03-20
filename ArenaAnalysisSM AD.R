@@ -1,30 +1,41 @@
-library(dplyr)
-library(tidyverse)
-library(ggplot2)
-ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Arena%20Data%20raw")
+# Shannon McWaters, Jack-Morgan Mizell, Ren Calabro, Kiara Alexis Casas, Robert C Wilson, Anna Dornhaus
+# (c) 2020-2026
+# Directed Exploration in Bumble bees
+# Data analysis & graphs - part 2: ARENA
+
+# Packages used ---------------------
+library(tidyverse) # Data handling/converting
+library(patchwork) # Arrangement of plots
+library(ggeffects) # Fine-tuning axes of ggplot
+#library(broom.mixed)
+library(sjPlot) # Produce model output tables for print
 
 #####################################################################
-#
-#
-#STOP HERE: 
-# Consider the following options, which affect all subsequent calculations
-# and graphs.
+# Importing data for experiment 2 directly from github -----------------------
+ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Arena%20Data%20raw")
 # Should 'problematic' bees be excluded? 
 ArenaData2 <- subset(ArenaData, Bee!="Yellow19" & Bee!="Green83" & Bee!="Yellow46" & Bee!="Green57")
-# Alternatively see section D.XIII.
-#
 # How should revisits to the same individual be counted?
-#revisitoption <- "no reward" # counted as a visit with 0 reward
+# revisitoption <- "no reward" # counted as a visit with 0 reward
 # revisitoption <- "not counted" # not counted as visit at all
 # revisitoption <- "full" # counted as visit with full (intended) reward
-#
-#### data wrangling ####
-#Filter for columns we will actually use here
-FilteredArena <- ArenaData2 %>%
-  select(Bee,Horizon,Order,Session,Condition,VideoReviewedChoices,Rewards)
-#Make long version of data where each choice is a row
+
+showsim <- FALSE
+
+# Colors -----------------------------
+colorsfam <- viridis(3, begin = 0.2, end = 0.8)
+colorshor <- inferno(2, begin = 0.2, end = 0.8)
+colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
+# This is how many lines we plot when illustrating uncertainty around fits:
+n_uncertainty <- 500
+
+#####################################################################
+#### Data wrangling --------------------------------------
+# Filter for columns we will actually use here
+FilteredArena <- ArenaData2 %>% dplyr::select(Bee,Horizon,Order,Session,Condition,VideoReviewedChoices,Rewards)
+# Make long version of data where each choice is a row
 Choice <- strsplit(as.character(FilteredArena$VideoReviewedChoices), split=",")
-Choices<-unlist(Choice)
+Choices<- unlist(Choice)
 Order <- rep(FilteredArena$Order, sapply(Choice, length))
 Flowervalue <- strsplit(FilteredArena$Rewards, split=",")
 Reward <- unlist(Flowervalue)
@@ -45,9 +56,9 @@ ArenaDataLong <- ArenaDataLong %>%
   group_by(Bee, Order, Session) %>%
   mutate(ChoiceNumber = row_number()) %>%
   ungroup()
-# Add new column randomizing the assingment of Flower A and B
+# Add new column randomizing the assignment of Flower A and B
 # Step 1: Create a random flip assignment per bee
-set.seed(123)  # Remove this if you want different randomization each time
+#set.seed(123)  # Remove this if you want different randomization each time
 
 bee_map <- ArenaDataLong %>%
   distinct(Bee, Order) %>%
@@ -56,7 +67,6 @@ bee_map <- ArenaDataLong %>%
 # Step 2: Join it back to dataset
 ArenaDataLong <- ArenaDataLong %>%
   left_join(bee_map, by = c("Bee", "Order"))
-
 
 # Step 3: Apply random A/B mapping using ifelse logic
 ArenaDataLong <- ArenaDataLong %>%
@@ -69,12 +79,13 @@ ArenaDataLong <- ArenaDataLong %>%
       TRUE ~ ifelse(flip_A, "B", "A")  # everything else gets the opposite
     )
   )
-#Add a column that marks the number choice per bout
+
+# Add a column that marks the number choice per bout
 ArenaDataLong <- ArenaDataLong %>%
   group_by(Bee,Order, Session) %>%
   mutate(ChoiceNumber = row_number()) %>%
   ungroup()
-#Marks choice number per horizon
+# Marks choice number per horizon
 ArenaDataLong <- ArenaDataLong %>%
   arrange(Bee, Order, Session, ChoiceNumber) %>%  # Ensure data is ordered correctly
   group_by(Bee, Order) %>%
@@ -113,7 +124,7 @@ ArenaDataLong <- ArenaDataLong %>%
     UniqueVisits_B = cumsum((FlowerID == "B") * FirstVisit)
   ) %>%
   ungroup() %>%
-  select(-FirstVisit) %>%
+  dplyr::select(-FirstVisit) %>%
   
   # Step 3: Compute running reward averages based on unique visits only
   group_by(Bee, Order) %>%
@@ -127,7 +138,7 @@ ArenaDataLong <- ArenaDataLong %>%
     UniqueRunAvg_B = ifelse(UniqueRunCount_B > 0, UniqueRunSum_B / UniqueRunCount_B, NA)
   ) %>%
   ungroup() %>%
-  select(-UniqueRunSum_A, -UniqueRunCount_A, -UniqueRunSum_B, -UniqueRunCount_B)
+  dplyr::select(-UniqueRunSum_A, -UniqueRunCount_A, -UniqueRunSum_B, -UniqueRunCount_B)
 
 ArenaDataLong <- ArenaDataLong %>%
   arrange(Bee, Order, HorizonChoiceNum) %>%
@@ -204,7 +215,18 @@ FirstChoice <- FirstChoice %>%
 FirstChoice_unequal <- FirstChoice %>%
   filter(TrueInformative != "Equal") %>%
   mutate(ChoseInformative = ifelse(FlowerID == TrueInformative,1,0))
+#####################################################################
 
+
+## Generative model and simulated data -------------------------
+ifelse(showsim
+       , dat <- simdata
+       , dat <- ArenaData
+)
+## end sim ---------------------------
+
+
+#####################################################################
 ####MAIN TEST: Do bees care about information difference?####
 
 # In their first choice in the test phase, is the bee's choice
@@ -213,7 +235,7 @@ FlowerAmod = glm(chose_flowerA ~ PropValDiff_FlowerA * Horizon + RelativeFamilia
 summary(FlowerAmod)
 
 
-#For info choice - use unequal info only
+# For info choice - use unequal info only
 
 infomodarena = glm(ChoseInformative ~ PropValDiff + Horizon + Order, family = binomial, data = FirstChoice_unequal)
 summary(infomodarena)
@@ -223,7 +245,6 @@ summary(valuemod)
 
 ####Plots####
 #Goal: Show how value difference and informational difference predict preference for Flower A.
-library(patchwork)
 
 # Plot 1: Relative Familiarity of Flower A
 p1 <- ggplot(FirstChoice, aes(x = RelativeFamiliarity_FlowerA, y = chose_flowerA)) +
@@ -247,8 +268,9 @@ p2 <- ggplot(FirstChoice, aes(x = PropValDiff_FlowerA, y = chose_flowerA)) +
 
 # Combine side by side
 p1 + p2
-#plot based on model predictions
-library(ggeffects)
+
+
+# Plot based on model predictions
 infomod <- glm(ChoseInformative ~ Horizon * Order + PropValDiff,
                family = binomial, data = FirstChoice_unequal)
 
@@ -303,7 +325,6 @@ preds_box <- ggpredict(infomod, terms = c("Order", "Horizon"))
 FirstChoice_unequal$predicted_prob <- predict(infomod, type = "response")
 
 # Now plot predicted probabilities as boxplots grouped by Order & Horizon
-library(ggplot2)
 
 ggplot(FirstChoice_unequal, aes(x = factor(Order), y = predicted_prob, fill = factor(Horizon))) +
   geom_boxplot(position = position_dodge(width = 0.7), width = 0.6, alpha = 0.7, outlier.shape = NA) +
@@ -315,8 +336,6 @@ ggplot(FirstChoice_unequal, aes(x = factor(Order), y = predicted_prob, fill = fa
   theme_minimal(base_size = 14)
 
 
-library(broom.mixed)
-library(sjPlot)
 
 tab_model(
   FlowerAmod,
