@@ -295,6 +295,7 @@ plot(NULL
      , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
      , xaxt = 'n'
      , xlim = c(-2, 2)
+     , yaxt = 'n'
 )
 axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are
 abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
@@ -365,6 +366,7 @@ plot(NULL
      , ylim = c(-0.1, 1.1)
      , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
      , xaxt = 'n'
+     , yaxt = 'n'
      , xlim = c(-2, 2)
 )
 axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are

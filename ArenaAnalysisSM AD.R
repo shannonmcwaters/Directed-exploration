@@ -9,14 +9,21 @@ library(patchwork) # Arrangement of plots
 library(ggeffects) # Fine-tuning axes of ggplot
 #library(broom.mixed)
 library(sjPlot) # Produce model output tables for print
+library(viridis)
 
 #####################################################################
 # Importing data for experiment 2 directly from github -----------------------
 ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Arena%20Data%20raw")
 # Should 'problematic' bees be excluded? 
-ArenaData2 <- subset(ArenaData, Bee!="Yellow19" & Bee!="Green83" & Bee!="Yellow46" & Bee!="Green57")
+ArenaData2 <- subset(ArenaData, Bee!="Yellow19" & Bee!="Green83" 
+                     & Bee!="Yellow46" & Bee!="Green57")
+# Yellow46 has only 2 rows order 1 (no horizon 2)
+# Green57 has 2 rows order 1 (no horizon 16)
+# Green83 - some error occurred in color recording
+# What's wrong with Yellow19?
+
 # How should revisits to the same individual be counted?
-# revisitoption <- "no reward" # counted as a visit with 0 reward
+revisitoption <- "no reward" # counted as a visit with 0 reward
 # revisitoption <- "not counted" # not counted as visit at all
 # revisitoption <- "full" # counted as visit with full (intended) reward
 
@@ -36,11 +43,11 @@ FilteredArena <- ArenaData2 %>% dplyr::select(Bee,Horizon,Order,Session,Conditio
 # Make long version of data where each choice is a row
 Choice <- strsplit(as.character(FilteredArena$VideoReviewedChoices), split=",")
 Choices<- unlist(Choice)
-Order <- rep(FilteredArena$Order, sapply(Choice, length))
 Flowervalue <- strsplit(FilteredArena$Rewards, split=",")
 Reward <- unlist(Flowervalue)
 Bee <- rep(FilteredArena$Bee, sapply(Choice, length))
 Horizon <- rep(FilteredArena$Horizon, sapply(Choice, length))
+Order <- rep(FilteredArena$Order, sapply(Choice, length))
 Session <- rep(FilteredArena$Session, sapply(Choice, length))
 Condition <- rep(FilteredArena$Condition, sapply(Choice, length))
 
@@ -56,22 +63,21 @@ ArenaDataLong <- ArenaDataLong %>%
   group_by(Bee, Order, Session) %>%
   mutate(ChoiceNumber = row_number()) %>%
   ungroup()
+
 # Add new column randomizing the assignment of Flower A and B
 # Step 1: Create a random flip assignment per bee
 #set.seed(123)  # Remove this if you want different randomization each time
-
 bee_map <- ArenaDataLong %>%
-  distinct(Bee, Order) %>%
+  distinct(Bee, Order) %>% # This gets all unique color pairs (which are repeated across
+  # horizon 6 and whatever the Test horizon is)
   mutate(flip_A = sample(c(TRUE, FALSE), n(), replace = TRUE))
-
 # Step 2: Join it back to dataset
 ArenaDataLong <- ArenaDataLong %>%
   left_join(bee_map, by = c("Bee", "Order"))
-
 # Step 3: Apply random A/B mapping using ifelse logic
 ArenaDataLong <- ArenaDataLong %>%
   mutate(
-    FlowerID = case_when(
+    FlowerType = case_when(
       flip_A & Session == "Test" & Choices %in% c("1", "3", "6", "8", "14", "16") ~ "A",
       flip_A & Session == "Sample" & Choices %in% c("1", "2", "4", "5") ~ "A",
       !flip_A & Session == "Test" & Choices %in% c("1", "3", "6", "8", "14", "16") ~ "B",
@@ -80,35 +86,39 @@ ArenaDataLong <- ArenaDataLong %>%
     )
   )
 
-# Add a column that marks the number choice per bout
-ArenaDataLong <- ArenaDataLong %>%
-  group_by(Bee,Order, Session) %>%
-  mutate(ChoiceNumber = row_number()) %>%
-  ungroup()
 # Marks choice number per horizon
 ArenaDataLong <- ArenaDataLong %>%
   arrange(Bee, Order, Session, ChoiceNumber) %>%  # Ensure data is ordered correctly
   group_by(Bee, Order) %>%
   mutate(HorizonChoiceNum = row_number()) %>%       # Generate a continuous choice number within each Horizon
   ungroup()
-# Create the RewardRepeat column
-ArenaDataLong <- ArenaDataLong %>%
-  group_by(Bee, Order, Session, Choices) %>%
-  mutate(
-    RewardRepeat = ifelse(row_number() == 1, Reward, 0) # Reward only for the first visit to each flower
-  ) %>%
-  ungroup()
 
-ArenaDataLong <- ArenaDataLong %>%
-  mutate(
-    RewardRepeat = as.numeric(RewardRepeat)   # Convert Informative to numeric
-  )
 ArenaDataLong <- ArenaDataLong %>%
   mutate(
     Reward = na_if(Reward, ""),           # Convert empty strings to NA
     Reward = na_if(Reward, "NA"),         # Convert "NA" strings to actual NA
     Reward = as.numeric(Reward)           # Convert to numeric
   )
+
+# Create the RewardRepeat column
+# revisitoption <- "no reward" # counted as a visit with 0 reward
+# revisitoption <- "not counted" # not counted as visit at all
+# revisitoption <- "full" # counted as visit with full (intended) reward
+revisitreward <- case_when(
+  revisitoption == "no reward" ~ 0
+  , revisitoption == "not counted" ~ NA
+  , revisitoption == "full" ~ -99
+)
+ArenaDataLong <- ArenaDataLong %>%
+  group_by(Bee, Order, Session, Choices) %>%
+  mutate(
+    RewardRepeat = ifelse(row_number() == 1, Reward, ifelse(revisitoption=="full", Reward, revisitreward)) # Reward only for the first visit to each flower
+  ) %>%
+  ungroup()
+
+ArenaDataLong$RewardRepeat <- as.numeric(ArenaDataLong$RewardRepeat)
+
+# Now ... ?
 ArenaDataLong <- ArenaDataLong %>%
   arrange(Bee, Order, HorizonChoiceNum) %>%
   
@@ -139,7 +149,9 @@ ArenaDataLong <- ArenaDataLong %>%
   ) %>%
   ungroup() %>%
   dplyr::select(-UniqueRunSum_A, -UniqueRunCount_A, -UniqueRunSum_B, -UniqueRunCount_B)
+# The above seems to be another way of dealing with the revisitoption
 
+# Calculate a running total of number of visits to each flower type
 ArenaDataLong <- ArenaDataLong %>%
   arrange(Bee, Order, HorizonChoiceNum) %>%
   group_by(Bee, Order) %>%
@@ -149,6 +161,8 @@ ArenaDataLong <- ArenaDataLong %>%
   ) %>%
   ungroup()
 
+# Filter out the first choice in the Test trial, which is the key choice we are
+# evaluating.
 FirstChoice <- ArenaDataLong %>%
   filter(Session == "Test", ChoiceNumber == 1)
 FirstChoice <- FirstChoice %>%
