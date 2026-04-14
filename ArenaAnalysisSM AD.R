@@ -111,59 +111,38 @@ revisitreward <- case_when(
 )
 ArenaDataLong <- ArenaDataLong %>%
   group_by(Bee, Order, Session, Choices) %>%
+  mutate(FirstVisitToFlower = ifelse(row_number() == 1, TRUE, FALSE)) %>%
   mutate(
-    RewardRepeat = ifelse(row_number() == 1, Reward, ifelse(revisitoption=="full", Reward, revisitreward)) # Reward only for the first visit to each flower
-  ) %>%
+    CountedVisit = ifelse(revisitoption=="not counted", 
+                          ifelse(FirstVisitToFlower, TRUE, FALSE)
+                          , TRUE),
+    RewardRepeat = ifelse(FirstVisitToFlower, Reward
+                               , ifelse(revisitoption=="full", Reward
+                                        , revisitreward))) %>%
   ungroup()
 
 ArenaDataLong$RewardRepeat <- as.numeric(ArenaDataLong$RewardRepeat)
 
-# Now ... ?
+# Calculate running reward averages for each flower type
 ArenaDataLong <- ArenaDataLong %>%
   arrange(Bee, Order, HorizonChoiceNum) %>%
-  
-  # Step 1: Identify first visits to each flower
-  group_by(Bee, Order, FlowerID) %>%
-  mutate(FirstVisit = !duplicated(Choices)) %>%
-  ungroup() %>%
-  
-  # Step 2: Count unique visits to each flower type
+  # This grouping includes all the bee's experience with this set of colors/
+  # flower types
   group_by(Bee, Order) %>%
   mutate(
-    UniqueVisits_A = cumsum((FlowerID == "A") * FirstVisit),
-    UniqueVisits_B = cumsum((FlowerID == "B") * FirstVisit)
-  ) %>%
-  ungroup() %>%
-  dplyr::select(-FirstVisit) %>%
-  
-  # Step 3: Compute running reward averages based on unique visits only
-  group_by(Bee, Order) %>%
-  mutate(
-    UniqueRunSum_A = lag(cumsum((Reward * (FlowerID == "A")) * (UniqueVisits_A > lag(UniqueVisits_A, default = 0))), default = 0),
-    UniqueRunCount_A = lag(UniqueVisits_A, default = 0),
-    UniqueRunAvg_A = ifelse(UniqueRunCount_A > 0, UniqueRunSum_A / UniqueRunCount_A, NA),
-    
-    UniqueRunSum_B = lag(cumsum((Reward * (FlowerID == "B")) * (UniqueVisits_B > lag(UniqueVisits_B, default = 0))), default = 0),
-    UniqueRunCount_B = lag(UniqueVisits_B, default = 0),
-    UniqueRunAvg_B = ifelse(UniqueRunCount_B > 0, UniqueRunSum_B / UniqueRunCount_B, NA)
-  ) %>%
-  ungroup() %>%
-  dplyr::select(-UniqueRunSum_A, -UniqueRunCount_A, -UniqueRunSum_B, -UniqueRunCount_B)
-# The above seems to be another way of dealing with the revisitoption
-
-# Calculate a running total of number of visits to each flower type
-ArenaDataLong <- ArenaDataLong %>%
-  arrange(Bee, Order, HorizonChoiceNum) %>%
-  group_by(Bee, Order) %>%
-  mutate(
-    FlowerA_Visits = cumsum(FlowerID == "A"),
-    FlowerB_Visits = cumsum(FlowerID == "B")
+    Visits_A = cumsum((FlowerType == "A") * CountedVisit),
+    Visits_B = cumsum((FlowerType == "B") * CountedVisit),
+    RewardSum_A = cumsum((Reward * (FlowerType == "A") * CountedVisit)),
+    RewardSum_B = cumsum((Reward * (FlowerType == "B") * CountedVisit)),
+    RewAvg_A = RewardSum_A/Visits_A,
+    RewAvg_B = RewardSum_B/Visits_B
   ) %>%
   ungroup()
 
+
 # Filter out the first choice in the Test trial, which is the key choice we are
 # evaluating.
-FirstChoice <- ArenaDataLong %>%
+TestChoice <- ArenaDataLong %>%
   filter(Session == "Test", ChoiceNumber == 1)
 FirstChoice <- FirstChoice %>%
   mutate(TrueInformative = case_when(
