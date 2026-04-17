@@ -18,11 +18,12 @@ colorsfam <- viridis(3, begin = 0.2, end = 0.8)
 colorshor <- inferno(2, begin = 0.2, end = 0.8)
 colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
 transparency_glm_uncertainty <- 0.005 #0.1
-transparency_Bay_uncertainty <- 0.01 #0.15
+transparency_Bay_uncertainty <- 0.1#01 #0.15
 colorassumption <- "darkred"
 colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
 n_uncertainty <- 1000
+n_ppp_per_set <- 500
 N_sim <- 1000
 showsim <- TRUE
 showBayes <- TRUE
@@ -155,6 +156,7 @@ list_of_assumptions <- alist(
   c ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
   d ~ dnorm(slopevf_prior_mean, slopevf_prior_sd)
 )
+
 ## Bayesian estimation function ------------------
 # We're going to use quap() for the actual estimation. 
 # We may or may not need 'start' to help the model converge on a solution. 
@@ -492,7 +494,7 @@ mtext("Concentration Difference", 1, 2, outer = TRUE)
 
 
 #######################################################
-# II. Degree of exploration -------
+# MODELING EFFECT OF HORIZON TWO WAYS -----------------
 # Data simulation for workflow check and power analysis -----------------------
 # We use the parameters above, intercept, slope_value, slope_familiarity, and slope_valxfam
 # as 'default', i.e. with horizon = 1. 
@@ -616,7 +618,7 @@ start <- function(dat) {
 ExplorModel <- function(dat) {
   quap(
     list_of_assumptions
-    , data = list(CL = dat$chose_R_numeric, val = dat$RightConcentrationDiff, fam = dat$famdiffs, hor = as.numeric(dat$Horizon))
+    , data = list(CL = dat$chose_R_numeric, val = dat$RightConcentrationDiff, fam = dat$famdiffs, hor = (as.numeric(dat$Horizon)-1))
     , start = start(dat)
   )
 }
@@ -626,8 +628,8 @@ ifelse(showsim
        , dat <- simdata
        , dat <- MazeData
 )
-
-## GLM ------------------------------------
+# II. Degree of exploration -------
+## GLM for random exploration ------------------------------------
 rndExploration_mod <- glm(chose_R_numeric ~ RightConcentrationDiff * Horizon, family = binomial, data = dat)
 ## Bayesian analysis -----------------------
 posterior_bees <- ExplorModel(dat)
@@ -637,6 +639,9 @@ intercepts_post <- samples_of_post$a
 slopes_c <- samples_of_post$b
 slopes_f <- samples_of_post$c
 slopes_cf <- samples_of_post$d
+rnd_expl <- samples_of_post$rnd
+dir_expl <- samples_of_post$dir
+
 ## Table II. Random exploration GLM ---------------------
 tab_model(rndExploration_mod
           , show.re.var = TRUE
@@ -647,10 +652,37 @@ tab_model(rndExploration_mod
           )
           , dv.labels = "Effect on probability of choosing right flower"
 )
-#######################################################
 # III. Directed exploration -------
-## GLM
+## GLM for directed exploration -----------------------
 dirExpl_HI_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, family = binomial, data = dat)
+## Bayesian analysis -----------------------
+# The Bayesian model above really includes both random and directed exploration. But
+# to directly compare the parameters between that and this directed exploration test,
+# we need to convert the parameters such that we treat 'choosing the low familiarity option' 
+# as the response variable. 
+# We can simply make a posterior predictive distribution of essentially simulated 
+# points according to the posteriors for the parameters. 
+set_of_valuediffs <- c(-2, -1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2)
+valuediffs <- sample(set_of_valuediffs, n_ppp_per_set, replace = TRUE)
+famdiffs <- sample(c(-1), n_ppp_per_set, replace = TRUE)
+horizons <- sample(c(0, 1), n_uncertainty, replace = TRUE)
+PPPoints <- data.frame(NULL)
+for(i in 1:n_uncertainty) {
+  choices <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercepts_post[i], slopes_c[i]+rnd_expl[i]*horizons[i], slopes_f[i]+dir_expl[i]*horizons[i], slopes_cf[i]))
+  set <- data.frame(choice = choices, RightConcentrationDiff = valuediffs, famdiffs, Horizon = horizons[i], Set = i)
+  PPPoints <- rbind(PPPoints, set)
+}
+flip_these <- subset(PPPoints, PPPoints$famdiffs > 0)
+flip_these$choice <- ifelse(flip_these$choice == "right", "left", "right")
+flip_these$famdiffs <- -1*flip_these$famdiffs
+flip_these$RightConcentrationDiff <- -1*flip_these$RightConcentrationDiff
+PPPoints <- rbind(subset(PPPoints, PPPoints$famdiffs < 0), flip_these)
+# Now, for all these points, the "right" choice is the low-familiarity
+# option.
+# Each 'set' here has the same parameter values drawn together from the posterior, 
+# but different specific value differences between options. Familiarity difference
+# is always -1.
+
 ## Table III. Directed exploration GLM --------------
 tab_model(dirExpl_HI_mod
           , show.re.var = TRUE
@@ -667,10 +699,10 @@ tab_model(dirExpl_HI_mod
 # Layout
 par(mfrow=c(1,2))
 par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
-n_uncertainty <- 250
 # Each panel doing its own modeling separately
 ### Horizon 1 - model and graph ----------------
 d_graph <- subset(dat, dat$Horizon == 1)
+PPPoints_panel1 <- subset(PPPoints, PPPoints$Horizon == 0)
 # Plot frame
 plot(NULL
      , ylab = ""
@@ -702,13 +734,21 @@ for(i in 1:n_uncertainty) {
         , col = alpha(colorshor[1], transparency_glm_uncertainty)
         , lwd = 3
   )
-  curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
-        , from = -2, to = 2
-        , add = TRUE
-        , lwd = 3
-        , col = alpha("grey34", transparency_Bay_uncertainty)
-        , lty = 2
-  )
+  # Plotting Bayesian PPD
+  if(showBayes) {
+    # We want to plot a probability, not an actual choice point. 
+    # This will get us the Bayesian fit line.
+    PPD_prob <- numeric(length=length(set_of_valuediffs))
+    for(j in 1:length(set_of_valuediffs)) {
+      PPPs <- subset(PPPoints_panel1, PPPoints_panel1$Set==i & PPPoints_panel1$RightConcentrationDiff==set_of_valuediffs[j])
+      PPD_prob[j] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
+    }
+    lines(PPD_prob ~ set_of_valuediffs
+           , col = alpha("grey34", transparency_Bay_uncertainty)
+          , lwd = 3
+          , lty = 2
+    )
+  }
 }
 # Original data points with slight jitter
 points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
@@ -716,17 +756,6 @@ points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, 
        , pch = 19
        , col = alpha(colorshor[1], 0.5)
        , cex = 1.5
-)
-# Plotting Bayesian fit line
-curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
-                      , precis(posterior_bees)[2,1]
-                      , precis(posterior_bees)[3,1]
-                      , precis(posterior_bees)[4,1])
-      , from = -2, to = 2
-      , add = TRUE
-      , lwd = 4
-      , col = "grey34"
-      , lty = 2
 )
 # Plotting the estimated fit from the glm:
 # (We're doing this last instead of earlier so it comes out on top for better
@@ -749,6 +778,7 @@ text(x = 1.75, y =-0.1, labels = paste("n=", samples2[4]), col = colorshor[1])
 
 ### Horizon 6 - model and graph ----------------------
 d_graph <- subset(dat, dat$Horizon == 6)
+PPPoints_panel2 <- subset(PPPoints, PPPoints$Horizon == 1)
 plot(NULL
      , ylab = ""
      , ylim = c(-0.1, 1.1)
@@ -777,6 +807,21 @@ for(i in 1:n_uncertainty) {
         , col = alpha(colorshor[2], transparency_glm_uncertainty)
         , lwd = 3
   )
+  # Plotting Bayesian PPD
+  if(showBayes) {
+    # We want to plot a probability, not an actual choice point. 
+    # This will get us the Bayesian fit line.
+    PPD_prob <- numeric(length=length(set_of_valuediffs))
+    for(j in 1:length(set_of_valuediffs)) {
+      PPPs <- subset(PPPoints_panel2, PPPoints_panel2$Set==i & PPPoints_panel2$RightConcentrationDiff==set_of_valuediffs[j])
+      PPD_prob[j] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
+    }
+    lines(PPD_prob ~ set_of_valuediffs
+          , col = alpha("grey34", transparency_Bay_uncertainty)
+          , lwd = 3
+          , lty = 2
+    )
+  }
 }
 # Original data points with slight jitter
 points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
