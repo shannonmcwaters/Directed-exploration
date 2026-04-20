@@ -17,15 +17,15 @@ MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-
 colorsfam <- viridis(3, begin = 0.2, end = 0.8)
 colorshor <- inferno(2, begin = 0.2, end = 0.8)
 colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
-transparency_glm_uncertainty <- 0.005 #0.1
-transparency_Bay_uncertainty <- 0.1#01 #0.15
+transparency_glm_uncertainty <- 0.01 #0.1
+transparency_Bay_uncertainty <- 0.018 #0.15
 colorassumption <- "darkred"
 colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
-n_uncertainty <- 1000
-n_ppp_per_set <- 500
+n_uncertainty <- 300
+n_ppp_per_set <- 2000
 N_sim <- 1000
-showsim <- TRUE
+showsim <- FALSE
 showBayes <- TRUE
 
 # Data formatting ---------------------------------
@@ -99,11 +99,15 @@ sim_choice <- function(probabilities) {
   return(choices)
 }
 
+# Parameter values chosen for simulation
 slope_value <- 0.5
 slope_familiarity <- 0
 slope_valxfam <- 0.8
 intercept <- 0
 
+# There is no attempt here to simulate an actual experiment; we merely
+# simulate a dataset that varies these parameters uniformly and independently, 
+# and calculate the resulting 'choice' from the modeled function. 
 valuediffs <- runif(N_sim, min = -2, max = 2)
 famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
 bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
@@ -562,14 +566,8 @@ simdata <- simdata %>%
 ## Priors -------------------
 # Priors involve the probability distributions of all the parameters, so typically
 # means and standard deviations.
-intercept_prior_mean <- 0
-intercept_prior_SD <- 0.3
-slopeval_prior_mean <- 1
-slopeval_prior_sd <- 0.5
-slopefam_prior_mean <- 0
-slopefam_prior_sd <- 2
-slopevf_prior_mean <- 0
-slopevf_prior_sd <- 2
+# We'll use the same priors as before for all the parameters we had before. 
+# For the new ones:
 rnd_explor_prior_mean <- 0
 rnd_explor_prior_sd <- 2
 dir_explor_prior_mean <- 0
@@ -615,6 +613,7 @@ start <- function(dat) {
 }
 # CL stands for choice list, val is the value or reward difference between the options,
 # fam is the familiarity difference between the options. 
+# For horizon we want hor=0 for 'Horizon 1' and hor=1 for 'Horizon 6'.
 ExplorModel <- function(dat) {
   quap(
     list_of_assumptions
@@ -664,7 +663,7 @@ dirExpl_HI_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, fami
 # points according to the posteriors for the parameters. 
 set_of_valuediffs <- c(-2, -1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2)
 valuediffs <- sample(set_of_valuediffs, n_ppp_per_set, replace = TRUE)
-famdiffs <- sample(c(-1), n_ppp_per_set, replace = TRUE)
+famdiffs <- sample(c(-1, 1), n_ppp_per_set, replace = TRUE)
 horizons <- sample(c(0, 1), n_uncertainty, replace = TRUE)
 PPPoints <- data.frame(NULL)
 for(i in 1:n_uncertainty) {
@@ -729,7 +728,7 @@ int_sd <- round(probs_from_pars(0, 0, interc+summary(H1_Expl_mod)$coefficients[1
 # Extracting uncertainty
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H1_Expl_mod))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
+  curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
         , col = alpha(colorshor[1], transparency_glm_uncertainty)
         , lwd = 3
@@ -802,7 +801,7 @@ int_sd <- round(probs_from_pars(0, 0, interc+summary(H6_Expl_mod)$coefficients[1
 # Bayesian model and extracting estimates
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H6_Expl_mod))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
+  curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
         , col = alpha(colorshor[2], transparency_glm_uncertainty)
         , lwd = 3

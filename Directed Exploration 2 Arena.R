@@ -12,9 +12,16 @@ library(viridis)
 colorsfam <- viridis(3, begin = 0.2, end = 0.8)
 colorshor <- inferno(2, begin = 0.2, end = 0.8)
 colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
+transparency_glm_uncertainty <- 0.01 #0.1
+transparency_Bay_uncertainty <- 0.018 #0.15
+colorassumption <- "darkred"
+colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
-n_uncertainty <- 500
+n_uncertainty <- 300
+n_ppp_per_set <- 1000
+N_sim <- 1000
 showsim <- FALSE
+showBayes <- FALSE
 # How should revisits to the same individual be counted?
 revisitoption <- "no reward" # counted as a visit with 0 reward
 # revisitoption <- "not counted" # not counted as visit at all
@@ -49,7 +56,7 @@ Condition <- rep(FilteredArena$Condition, sapply(Choice, length))
 #Combine to form new dataset
 ArenaDataLong <- data.frame(Bee,Horizon,Order,Session,Condition,Choices,Reward)
 
-# Make sure Order is numeric so filtering and min(Order) works later
+# Make sure Order is numeric 
 ArenaDataLong$Order <- as.numeric(as.character(ArenaDataLong$Order))
 
 # Assign ChoiceNumber correctly — reorder before numbering
@@ -174,8 +181,11 @@ ArenaDataLong <- ArenaDataLong %>%
       HighValueFlower == "B" ~ RelativeFamiliarity_FlowerB,
       HighValueFlower == "Equal" ~ 0,
       TRUE ~ NA_real_
-    )
-    
+    ),
+    TypeChoice = ifelse(CountedVisit, FlowerType, NA),
+    chose_flowerA = ifelse(!is.na(TypeChoice), ifelse(TypeChoice == "A", 1, 0), NA),
+    choseHighValue = ifelse(!is.na(TypeChoice), ifelse(TypeChoice == HighValueFlower, 1, 0), NA),
+    choseInformative = ifelse(!is.na(TypeChoice), ifelse(TypeChoice == TrueInformative, 1, 0), NA)
   ) %>%
   ungroup()
 
@@ -184,86 +194,84 @@ ArenaDataLong <- ArenaDataLong %>%
 TestChoice <- ArenaDataLong %>%
   filter(Session == "Test", ChoiceNumber == 1)
 
-TestChoice$chose_flowerA <- ifelse(TestChoice$FlowerType == "A", 1, 0)
-TestChoice$choseHighValue = ifelse(TestChoice$FlowerType == TestChoice$HighValueFlower, 1, 0)
-TestChoice$choseInformative = ifelse(TestChoice$FlowerType == TestChoice$TrueInformative, 1, 0)
 #####################################################################
+#### SIMULATE DATA -----------------------------------
+# Functions to simulate data are essentially the same as before (with maze experiment).
+probs_from_pars <- function(valuediffs_right, famdiffs_right, intercept, slope_value, slope_familiarity, slope_valxfam) {
+  samplesize <- length(valuediffs_right)
+  linear_predictor <- intercept + slope_value * valuediffs_right + slope_familiarity * famdiffs_right + slope_valxfam * valuediffs_right * famdiffs_right
+  probability_right <- 1/(1+exp(-linear_predictor))
+  return(probability_right)
+}
+# This function just picks actual choices from probabilities
+sim_choice <- function(probabilities) {
+  samplesize <- length(probabilities)
+  choice_roll <- runif(samplesize, 0, 1)
+  choices <- ifelse(choice_roll<probabilities, 1, 0)
+  return(choices)
+}
 
-#### SIMULATED DATA
+# Parameter values chosen for simulation; parameters don't mean quite the same here
+slope_value <- 0.5
+slope_familiarity <- 0
+slope_valxfam <- 0.8
+intercept <- 0
+rnd_expl_simpar <- 0.7
+dir_expl_simpar <- 0.4
+# Note that the current code does not allow for simulating an order_effect <- 0
+
+# There is no attempt here to simulate an actual experiment; we merely
+# simulate a dataset that varies these parameters uniformly and independently, 
+# and calculate the resulting 'choice' from the modeled function. 
+rel_valuediffs <- runif(N_sim, min = -1, max = 1)
+n_equal <- round(N_sim*0.2) # This is to make sure there are enough of the
+# single value familiarity difference = 0 to make a graph panel. 
+rel_famdiffs <- c(rep(0, times = n_equal), runif(N_sim-n_equal, min = -1, max = 1))
+bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
+order <- sample(c(1,2), N_sim, replace = TRUE)
+
+# Horizon 2
+choices_simdata <- sim_choice(probs_from_pars(rel_valuediffs, rel_famdiffs, intercept, slope_value, slope_familiarity, slope_valxfam))
+# In this dataset, the 'choices' that count are the ones in column 'TypeChoice', and 
+# value and familiarity differences are relative to total. 
+simdata_h2 <- data.frame(chose_flowerA = choices_simdata, PropValDiff_FlowerA = rel_valuediffs, RelativeFamiliarity_FlowerA = rel_famdiffs, Bee = bees, Horizon = 2, Order = order)
+
+# Horizon 16
+choices_simdata <- sim_choice(probs_from_pars(rel_valuediffs, rel_famdiffs, intercept, slope_value+rnd_expl_simpar, slope_familiarity+dir_expl_simpar, slope_valxfam))
+simdata_h16 <- data.frame(chose_flowerA = choices_simdata, PropValDiff_FlowerA = rel_valuediffs, RelativeFamiliarity_FlowerA = rel_famdiffs, Bee = bees, Horizon = 16, Order = order)
+
+# Now joining the two datasets together
+simdata <- rbind(simdata_h2, simdata_h16)
+
+# Some data formatting to match empirical data
+simdata$Horizon <- as.factor(simdata$Horizon)
+simdata$choseInformative <- ifelse(simdata$RelativeFamiliarity_FlowerA < 0
+                                   , simdata$chose_flowerA, 1-simdata$chose_flowerA
+                                   )
+simdata$PropValDiff_Fam <- ifelse(simdata$RelativeFamiliarity_FlowerA < 0
+                                  , simdata$PropValDiff_FlowerA
+                                  , ifelse(simdata$RelativeFamiliarity_FlowerA == 0
+                                           , NA
+                                           , -simdata$PropValDiff_FlowerA
+                                           )
+)
 
 
-
-## Generative model and simulated data -------------------------
+# Choose dataset to use -------------------------
 ifelse(showsim
        , dat <- simdata
-       , dat <- TestChoice
+       , dat <- TestChoice # or ArenaDataLong
 )
 ## end sim ---------------------------
-
+#####################################################################
+#### Bayesian model setup --------------------------------------
 
 #####################################################################
-#### Bayesian model setup
-
-
-# I. GLM full
-chooseAmod_full <- glm(chose_flowerA ~ PropValDiff_FlowerA * RelativeFamiliarity_FlowerA + Order, family = binomial, data = dat)
-summary(chooseAmod_full)
-## Output table GLM for paper -------------------------
-tab_model(chooseAmod_full
-          , show.re.var = TRUE
-          , pred.labels = c("Intercept"
-                            , "Prop. Reward Difference (conc. A - B/conc. A + B)"
-                            , "Prop. Familiarity Difference (A-B/A+B)"
-                            , "Order"
-                            , "Interaction Prop. Rew Diff x Prop. Fam Diff"
-          )
-          , dv.labels = "Effect on probability of choosing flower type A"
-)
-
-## Illustrate effects of familiarity and value (and interaction?) 
-# x - Prop reward diff
-# y - choose flower A
-# 3 panels, fam <0, fam = 0, fam >0
-
-# II. GLM full
-
-rndExploration_modA <- glm(chose_flowerA ~ PropValDiff_FlowerA * Horizon + Order, family = binomial, data = dat)
-summary(rndExploration_modA)
-tab_model(rndExploration_modA
-          , show.re.var = TRUE
-          , pred.labels = c("Intercept"
-                            , "Reward Difference (right - left)"
-                            , "Horizon"
-                            , "Order"
-                            , "Interaction Rew Diff x Horizon"
-          )
-          , dv.labels = "Effect on probability of choosing flower A"
-)
-
-dirExpl_HI_modA <- glm(choseInformative ~ PropValDiff_Fam * Horizon + Order, family = binomial, data = dat)
-summary(dirExpl_HI_modA)
-tab_model(dirExpl_HI_modA
-          , show.re.var = TRUE
-          , pred.labels = c("Intercept"
-                            , "Reward Difference (unfamiliar - familiar)"
-                            , "Horizon"
-                            , "Order"
-                            , "Interaction Rew Diff x Horizon"
-          )
-          , dv.labels = "Effect on probability of choosing less familiar flower"
-)
-
-# Plot 
-# x value of informative
-# y chose informative
-# panels order 1 order 2
-# horizon 2 vs 16 as different colors
-
-
-## Barplot of the same
-summary_bar <- TestChoice_unequal %>%
+## Barplot of the first choices of bees where they did not have equal information ------------
+## about both flowers
+summary_bar <- subset(dat, dat$RelativeFamiliarity_FlowerA != 0 & !is.na(chose_flowerA)) %>%
   mutate(InformativeChoice = ifelse(choseInformative == 1, "Informative", "Uninformative")) %>%
-  group_by(Horizon,Order, InformativeChoice) %>%
+  group_by(Horizon, Order, InformativeChoice) %>%
   summarise(n = n(), .groups = "drop") %>%
   group_by(Horizon, Order) %>%
   mutate(prop = n / sum(n))
@@ -283,3 +291,662 @@ ggplot(summary_bar, aes(x = factor(Horizon), y = prop, fill = InformativeChoice)
   theme_minimal(base_size = 14)
 
 
+#### GLMs  -------------------------------
+#### - these are basically identical to the ones for the Maze Experiment,
+#### just with 'Order' added as a factor.
+dat$Order_fac <- dat$Order - 1
+# I. GLM full ----------------------
+chooseAmod_full <- glm(
+  chose_flowerA ~ PropValDiff_FlowerA * RelativeFamiliarity_FlowerA + Order_fac
+  , family = binomial, data = dat)
+# II. GLM Random Exploration ---------------------------
+rndExploration_modA <- glm(
+  chose_flowerA ~ PropValDiff_FlowerA * Horizon + Order_fac
+  , family = binomial, data = dat)
+# III. GLM Directed Exploration -----------------------
+dirExpl_HI_modA <- glm(
+  choseInformative ~ PropValDiff_Fam * Horizon + Order_fac
+  , family = binomial, data = dat)
+## GLM Output tables for paper -------------------------
+tab_model(chooseAmod_full
+          , show.re.var = TRUE
+          , pred.labels = c("Intercept"
+                            , "Prop. Reward Difference (conc. A - B/conc. A + B)"
+                            , "Prop. Familiarity Difference (A-B/A+B)"
+                            , "Order"
+                            , "Interaction Prop. Rew Diff x Prop. Fam Diff"
+          )
+          , dv.labels = "Effect on probability of choosing flower type A"
+)
+tab_model(rndExploration_modA
+          , show.re.var = TRUE
+          , pred.labels = c("Intercept"
+                            , "Reward Difference (right - left)"
+                            , "Horizon"
+                            , "Order"
+                            , "Interaction Rew Diff x Horizon"
+          )
+          , dv.labels = "Effect on probability of choosing flower A"
+)
+tab_model(dirExpl_HI_modA
+          , show.re.var = TRUE
+          , pred.labels = c("Intercept"
+                            , "Reward Difference (unfamiliar - familiar)"
+                            , "Horizon"
+                            , "Order"
+                            , "Interaction Rew Diff x Horizon"
+          )
+          , dv.labels = "Effect on probability of choosing less familiar flower"
+)
+
+######################################################################
+#### FIGURES ------------------------------
+## Note that Fig 5 can come out significantly differently looking
+## based on the low sample size and the randomization of what is 
+## designated 'flower A'. The key is to remember that for 
+## generalization to be valid, we should be looking at the p-value...
+## Results Fig value x familiarity ---------------------
+## Illustrate effects of familiarity and value (and interaction) 
+# x - Prop reward diff
+# y - choose flower A
+# 3 panels, fam <0, fam = 0, fam >0
+par(mfrow=c(1,3))
+par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
+# Each panel doing its own modeling separately
+
+### Panel 1: LOW FAMILIARITY - model and graph ----------------
+d_graph <- subset(dat, dat$RelativeFamiliarity_FlowerA < 0)
+# Plot frame
+plot(NULL
+     , ylab = ""
+     , ylim = c(-0.1, 1.1)
+     , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
+     , xaxt = 'n'
+     , xlim = c(-1, 1)
+)
+axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+mtext("Chose 'Flower type A'", 2, 3)
+# Two gridlines to show random choice and equal reward
+abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
+abline(v = 0, col = "grey", lty = 2, lwd = 1)
+chooseAmod1 <- glm(chose_flowerA ~ PropValDiff_FlowerA, family = binomial, data = d_graph)
+interc <- chooseAmod1$coefficients[[1]]
+par1 <- chooseAmod1$coefficients[[2]]
+fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseAmod1))
+for(i in 1:n_uncertainty) {
+  curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorsfam[1], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+#  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+#                      , from = -2, to = 2
+#                      , add = TRUE
+#                      , lwd = 3
+#                      , col = alpha("grey34", transparency_Bay_uncertainty)
+#                      , lty = 2
+#  )
+}
+
+# 'True' relationship if using simdata; note that this is just for familiarity
+# difference -0.5 (whereas the simdata are uniformly distributed from -1 to 0).
+if(showsim) 
+  curve(probs_from_pars(x,  -0.5, intercept, slope_value, slope_familiarity, slope_valxfam)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = colorassumption
+        , lwd = 2
+        , lty = 3
+  )
+
+# Original data points with slight jitter
+points(jitter(chose_flowerA, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph
+       , pch = 19
+       , col = alpha(colorsfam[1], 0.5)
+       , cex = 2
+)
+
+# Plotting Bayesian fit line
+#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
+#                                    , precis(posterior_bees)[2,1]
+#                                    , precis(posterior_bees)[3,1]
+#                                    , precis(posterior_bees)[4,1])
+#                    , from = -2, to = 2
+#                    , add = TRUE
+#                    , lwd = 4
+#                    , col = "grey34"
+#                    , lty = 2
+#)
+
+# Plotting the estimated fit from the glm:
+curve(probs_from_pars(x, -1, interc, par1, 0, 0)
+      , from = -2, to = 2
+      , add = TRUE
+      , col = colorsfam[1]
+      , lwd = 5)
+
+# Text labels for panel
+# Converting parameters for labels:
+ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
+int <- round(probs_from_pars(0, -1, interc, par1, 0, 0), 2) # probability at x=0
+ose_sd <- round(exp(par1+summary(chooseAmod1)$coefficients[2,2]) - ose, 1)
+int_sd <- round(probs_from_pars(0, -1, interc+summary(chooseAmod1)$coefficients[1,2], par1, 0, 0) - int, 2)
+pvalue <- round(summary(chooseAmod1)$coefficients[2,4], 3)
+# Just for better understanding and data checking, we'll also label with the
+# sample size for the entire panel and the overall proportion of right choices.
+overall <- round(mean(d_graph$chose_flowerA), 2)
+# Now label with overall and per-level sample sizes, and add model result. 
+samples <- length(d_graph$chose_flowerA)
+text(x = -1, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[1], adj = 0)
+text(x = -1, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[1], adj = 0)
+text(x = -1, y = 1.07, labels = paste("'A' pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[1], adj = 0)
+
+### Panel 2: EQUAL FAMILIARITY - model and graph --------------------
+# We follow all the same steps as for Panel 1 (hence no annotations)
+d_graph <- subset(dat, dat$RelativeFamiliarity_FlowerA == 0)
+plot(NULL
+     , ylab = ""
+     , ylim = c(-0.1, 1.1)
+     , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
+     , xaxt = 'n'
+     , xlim = c(-1, 1)
+     , yaxt = 'n'
+)
+axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
+abline(v = 0, col = "grey", lty = 2, lwd = 1)
+chooseAmod2 <- glm(chose_flowerA ~ PropValDiff_FlowerA, family = binomial, data = d_graph)
+interc <- chooseAmod2$coefficients[[1]]
+par1 <- chooseAmod2$coefficients[[2]]
+fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseAmod2))
+for(i in 1:n_uncertainty) {
+  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorsfam[2], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  if(showBayes) curve(probs_from_pars(x, 0, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+                      , from = -1, to = 1
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
+}
+if(showsim) 
+  curve(probs_from_pars(x,  0, intercept, slope_value, slope_familiarity, slope_valxfam)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = colorassumption
+        , lwd = 2
+        , lty = 3
+  )
+points(jitter(chose_flowerA, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph
+       , pch = 19
+       , col = alpha(colorsfam[2], 0.5)
+       , cex = 2
+)
+if(showBayes) curve(probs_from_pars(x, 0, precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[4,1])
+                    , from = -1, to = 1
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
+curve(probs_from_pars(x, 0, interc, par1, 0, 0)
+      , from = -1, to = 1
+      , add = TRUE
+      , col = colorsfam[2]
+      , lwd = 5)
+ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
+int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2) # probability at x=0
+ose_sd <- round(exp(par1+summary(chooseAmod2)$coefficients[2,2]) - ose, 1)
+int_sd <- round(probs_from_pars(0, 0, interc+summary(chooseAmod2)$coefficients[1,2], par1, 0, 0) - int, 2)
+pvalue <- round(summary(chooseAmod2)$coefficients[2,4], 3)
+overall <- round(mean(d_graph$chose_flowerA), 2)
+samples <- length(d_graph$chose_flowerA)
+text(x = -1, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[2], adj = 0)
+text(x = -1, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[2], adj = 0)
+text(x = -1, y = 1.07, labels = paste("'A' pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[2], adj = 0)
+
+### Panel 3: HIGH FAMILIARITY - model and graph ----------------------
+d_graph <- subset(dat, dat$RelativeFamiliarity_FlowerA > 0)
+plot(NULL
+     , ylab = ""
+     , ylim = c(-0.1, 1.1)
+     , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
+     , xaxt = 'n'
+     , yaxt = 'n'
+     , xlim = c(-1, 1)
+)
+axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
+abline(v = 0, col = "grey", lty = 2, lwd = 1)
+chooseAmod3 <- glm(chose_flowerA ~ PropValDiff_FlowerA, family = binomial, data = d_graph)
+interc <- chooseAmod3$coefficients[[1]]
+par1 <- chooseAmod3$coefficients[[2]]
+fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseAmod3))
+for(i in 1:n_uncertainty) {
+  curve(probs_from_pars(x, 1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorsfam[3], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  if(showBayes) curve(probs_from_pars(x, 1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+                      , from = -1, to = 1
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
+}
+if(showsim) 
+  curve(probs_from_pars(x,  1, intercept, slope_value, slope_familiarity, slope_valxfam)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = colorassumption
+        , lwd = 2
+        , lty = 3
+  )
+points(jitter(chose_flowerA, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph
+       , pch = 19
+       , col = alpha(colorsfam[3], 0.5)
+       , cex = 2
+)
+if(showBayes) curve(probs_from_pars(x, 1, precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[4,1])
+                    , from = -1, to = 1
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
+curve(probs_from_pars(x, 1, interc, par1, 0, 0)
+      , from = -1, to = 1
+      , add = TRUE
+      , col = colorsfam[3]
+      , lwd = 5)
+ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
+int <- round(probs_from_pars(0, 1, interc, par1, 0, 0), 2) # probability at x=0
+ose_sd <- round(exp(par1+summary(chooseAmod2)$coefficients[2,2]) - ose, 1)
+int_sd <- round(probs_from_pars(0, 1, interc+summary(chooseAmod2)$coefficients[1,2], par1, 0, 0) - int, 2)
+pvalue <- round(summary(chooseAmod2)$coefficients[2,4], 3)
+overall <- round(mean(d_graph$chose_flowerA), 2)
+samples <- length(d_graph$chose_flowerA)
+text(x = -1, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[3], adj = 0)
+text(x = -1, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[3], adj = 0)
+text(x = -1, y = 1.07, labels = paste("'A' pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[3], adj = 0)
+### Joint x axis label for all panels: ---------------
+mtext("Concentration Difference", 1, 2, outer = TRUE)
+### end figure -------------------------
+
+## Results Fig 5 value + familiarity shown separately ---------------------
+## Illustrate effects of familiarity and value 
+## (values on the other factor pooled)
+# x - Prop reward diff or Prop familiarity diff
+# y - choose flower A
+par(mfrow=c(1,2))
+par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
+# Each panel doing its own modeling separately
+
+### Panel 1: Familiarity effect ----------------
+d_graph <- dat
+# Plot frame
+plot(NULL
+     , ylab = ""
+     , ylim = c(-0.1, 1.1)
+     , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
+     , xaxt = 'n'
+     , xlim = c(-1, 1)
+)
+axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+mtext("Chose 'Flower type A'", 2, 3)
+mtext("Relative Familiarity", 1, 3)
+# Two gridlines to show random choice and equal reward
+abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
+abline(v = 0, col = "grey", lty = 2, lwd = 1)
+chooseAmod_fam <- glm(chose_flowerA ~ RelativeFamiliarity_FlowerA, family = binomial, data = d_graph)
+interc <- chooseAmod_fam$coefficients[[1]]
+par1 <- chooseAmod_fam$coefficients[[2]]
+fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseAmod_fam))
+for(i in 1:n_uncertainty) {
+  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorsfam[1], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  #  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+  #                      , from = -2, to = 2
+  #                      , add = TRUE
+  #                      , lwd = 3
+  #                      , col = alpha("grey34", transparency_Bay_uncertainty)
+  #                      , lty = 2
+  #  )
+}
+
+# 'True' relationship if using simdata; note that this is just for familiarity
+# difference -0.5 (whereas the simdata are uniformly distributed from -1 to 0).
+if(showsim) 
+  curve(probs_from_pars(0,  x, intercept, slope_value, slope_familiarity, slope_valxfam)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = colorassumption
+        , lwd = 2
+        , lty = 3
+  )
+
+# Original data points with slight jitter
+points(jitter(chose_flowerA, factor = 0.2) ~ RelativeFamiliarity_FlowerA
+       , data = d_graph
+       , pch = 19
+       , col = alpha(colorsfam[1], 0.5)
+       , cex = 2
+)
+
+# Plotting Bayesian fit line
+#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
+#                                    , precis(posterior_bees)[2,1]
+#                                    , precis(posterior_bees)[3,1]
+#                                    , precis(posterior_bees)[4,1])
+#                    , from = -2, to = 2
+#                    , add = TRUE
+#                    , lwd = 4
+#                    , col = "grey34"
+#                    , lty = 2
+#)
+
+# Plotting the estimated fit from the glm:
+curve(probs_from_pars(x, 0, interc, par1, 0, 0)
+      , from = -2, to = 2
+      , add = TRUE
+      , col = colorsfam[1]
+      , lwd = 5)
+
+
+### Panel 2: Value effect --------------------
+# We follow all the same steps as for Panel 1 (hence no annotations)
+plot(NULL
+     , ylab = ""
+     , ylim = c(-0.1, 1.1)
+     , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
+     , xaxt = 'n'
+     , xlim = c(-1, 1)
+     , yaxt = 'n'
+)
+mtext("Relative Value", 1, 3)
+axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
+abline(v = 0, col = "grey", lty = 2, lwd = 1)
+chooseAmod_val <- glm(chose_flowerA ~ PropValDiff_FlowerA, family = binomial, data = d_graph)
+interc <- chooseAmod_val$coefficients[[1]]
+par1 <- chooseAmod_val$coefficients[[2]]
+fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseAmod_val))
+for(i in 1:n_uncertainty) {
+  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorsfam[1], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  if(showBayes) curve(probs_from_pars(x, 0, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+                      , from = -1, to = 1
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
+}
+if(showsim) 
+  curve(probs_from_pars(x,  0, intercept, slope_value, slope_familiarity, slope_valxfam)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = colorassumption
+        , lwd = 2
+        , lty = 3
+  )
+points(jitter(chose_flowerA, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph
+       , pch = 19
+       , col = alpha(colorsfam[1], 0.5)
+       , cex = 2
+)
+if(showBayes) curve(probs_from_pars(x, 0, precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[4,1])
+                    , from = -1, to = 1
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
+curve(probs_from_pars(x, 0, interc, par1, 0, 0)
+      , from = -1, to = 1
+      , add = TRUE
+      , col = colorsfam[1]
+      , lwd = 5)
+
+
+
+## Results Fig horizon x order ---------------------
+# x value of informative
+# y chose informative
+# panels order 1 order 2
+# horizon 2 vs 16 as different colors
+# Since this figure shows the choices of the informative flower,
+# what it looks like is independent of what is designated 'flower A'.
+par(mfrow=c(1,2))
+par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
+# Each panel doing its own modeling separately
+
+### Panel 1: order 1 ----------------
+d_graph <- subset(dat, dat$Order == 1)
+d_graph1 <- subset(d_graph, d_graph$Horizon == 2)
+d_graph2 <- subset(d_graph, d_graph$Horizon == 16)
+# Plot frame
+plot(NULL
+     , ylab = ""
+     , ylim = c(-0.1, 1.1)
+     , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
+     , xaxt = 'n'
+     , xlim = c(-1, 1)
+)
+axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+mtext("Chose Low Familiarity Option", 2, 3)
+# Two gridlines to show random choice and equal reward
+abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
+abline(v = 0, col = "grey", lty = 2, lwd = 1)
+Expl_modA_2 <- glm(choseInformative ~ PropValDiff_Fam, family = binomial, data = d_graph1)
+Expl_modA_16 <- glm(choseInformative ~ PropValDiff_Fam, family = binomial, data = d_graph2)
+interc_2 <- Expl_modA_2$coefficients[[1]]
+par1_2 <- Expl_modA_2$coefficients[[2]]
+fit_covar_matrix_2 <- mvrnorm(n_uncertainty, mu=c(interc_2, par1_2), Sigma=vcov(Expl_modA_2))
+interc_16 <- Expl_modA_16$coefficients[[1]]
+par1_16 <- Expl_modA_16$coefficients[[2]]
+fit_covar_matrix_16 <- mvrnorm(n_uncertainty, mu=c(interc_16, par1_16), Sigma=vcov(Expl_modA_16))
+for(i in 1:n_uncertainty) {
+  curve(probs_from_pars(x, 0, fit_covar_matrix_2[i,1], fit_covar_matrix_2[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorshor[1], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  curve(probs_from_pars(x, 0, fit_covar_matrix_16[i,1], fit_covar_matrix_16[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorshor[2], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+                      , from = -2, to = 2
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
+}
+
+# 'True' relationship if using simdata for horizon = 2
+if(showsim) 
+  curve(probs_from_pars(x, 0, intercept, slope_value, 0, slope_valxfam)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = colorassumption
+        , lwd = 2
+        , lty = 3
+  )
+
+# Original data points with slight jitter
+points(jitter(choseInformative, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph1
+       , pch = 19
+       , col = alpha(colorshor[1], 0.3)
+       , cex = 2
+)
+points(jitter(choseInformative, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph2
+       , pch = 19
+       , col = alpha(colorshor[2], 0.3)
+       , cex = 2
+)
+
+# Plotting Bayesian fit line
+#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
+#                                    , precis(posterior_bees)[2,1]
+#                                    , precis(posterior_bees)[3,1]
+#                                    , precis(posterior_bees)[4,1])
+#                    , from = -2, to = 2
+#                    , add = TRUE
+#                    , lwd = 4
+#                    , col = "grey34"
+#                    , lty = 2
+#)
+
+# Plotting the estimated fit from the glm:
+curve(probs_from_pars(x, 0, interc_2, par1_2, 0, 0)
+      , from = -1, to = 1
+      , add = TRUE
+      , col = colorshor[1]
+      , lwd = 5)
+curve(probs_from_pars(x, 0, interc_16, par1_16, 0, 0)
+      , from = -1, to = 1
+      , add = TRUE
+      , col = colorshor[2]
+      , lwd = 5)
+
+### Panel 2: order 2 ----------------
+d_graph <- subset(dat, dat$Order == 2)
+d_graph1 <- subset(d_graph, d_graph$Horizon == 2)
+d_graph2 <- subset(d_graph, d_graph$Horizon == 16)
+# Plot frame
+plot(NULL
+     , ylab = ""
+     , ylim = c(-0.1, 1.1)
+     , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
+     , xaxt = 'n'
+     , yaxt = 'n'
+     , xlim = c(-1, 1)
+)
+axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+# Two gridlines to show random choice and equal reward
+abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
+abline(v = 0, col = "grey", lty = 2, lwd = 1)
+Expl_modA_2 <- glm(choseInformative ~ PropValDiff_Fam, family = binomial, data = d_graph1)
+Expl_modA_16 <- glm(choseInformative ~ PropValDiff_Fam, family = binomial, data = d_graph2)
+interc_2 <- Expl_modA_2$coefficients[[1]]
+par1_2 <- Expl_modA_2$coefficients[[2]]
+fit_covar_matrix_2 <- mvrnorm(n_uncertainty, mu=c(interc_2, par1_2), Sigma=vcov(Expl_modA_2))
+interc_16 <- Expl_modA_16$coefficients[[1]]
+par1_16 <- Expl_modA_16$coefficients[[2]]
+fit_covar_matrix_16 <- mvrnorm(n_uncertainty, mu=c(interc_16, par1_16), Sigma=vcov(Expl_modA_16))
+for(i in 1:n_uncertainty) {
+  curve(probs_from_pars(x, 0, fit_covar_matrix_2[i,1], fit_covar_matrix_2[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorshor[1], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  curve(probs_from_pars(x, 0, fit_covar_matrix_16[i,1], fit_covar_matrix_16[i,2], 0, 0)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = alpha(colorshor[2], transparency_glm_uncertainty)
+        , lwd = 3
+  )
+  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+                      , from = -2, to = 2
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
+}
+
+# 'True' relationship if using simdata for horizon = 2
+if(showsim) 
+  curve(probs_from_pars(x, 0, intercept, slope_value, 0, slope_valxfam)
+        , from = -1, to = 1
+        , add = TRUE
+        , col = colorassumption
+        , lwd = 2
+        , lty = 3
+  )
+
+# Original data points with slight jitter
+points(jitter(choseInformative, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph1
+       , pch = 19
+       , col = alpha(colorshor[1], 0.3)
+       , cex = 2
+)
+points(jitter(choseInformative, factor = 0.2) ~ PropValDiff_FlowerA
+       , data = d_graph2
+       , pch = 19
+       , col = alpha(colorshor[2], 0.3)
+       , cex = 2
+)
+
+# Plotting Bayesian fit line
+#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
+#                                    , precis(posterior_bees)[2,1]
+#                                    , precis(posterior_bees)[3,1]
+#                                    , precis(posterior_bees)[4,1])
+#                    , from = -2, to = 2
+#                    , add = TRUE
+#                    , lwd = 4
+#                    , col = "grey34"
+#                    , lty = 2
+#)
+
+# Plotting the estimated fit from the glm:
+curve(probs_from_pars(x, 0, interc_2, par1_2, 0, 0)
+      , from = -1, to = 1
+      , add = TRUE
+      , col = colorshor[1]
+      , lwd = 5)
+curve(probs_from_pars(x, 0, interc_16, par1_16, 0, 0)
+      , from = -1, to = 1
+      , add = TRUE
+      , col = colorshor[2]
+      , lwd = 5)
+### Joint x axis label for all panels: ---------------
+mtext("Concentration Difference", 1, 2, outer = TRUE)
+
+### end Figs --------------------------
+
+
+## GLM Summary outputs in Console if desired ------------------
+summary(chooseAmod_full)
+summary(rndExploration_modA)
+summary(dirExpl_HI_modA)
