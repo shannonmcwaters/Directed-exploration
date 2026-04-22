@@ -3,6 +3,16 @@
 # Directed Exploration in Bumble bees
 # Data analysis & graphs - part 2: ARENA
 
+## Problems !!! 
+## Fig I Bayesian plots wrong
+## Overall, need to include order x value interaction as well as possibly
+## order x horizon interaction - original bar graph assumes the former
+## In no case makes an order effect on intercept (choosing flower A) make
+## sense. 
+## Big overall question also for maze experiment: does it make more sense to
+## model in the Bayesian model the probability of choosing the familiar flower?
+## Use plot(precis(posterior_bees)) for both experiments and models?
+
 # Packages used ---------------------
 library(tidyverse) # Data handling/converting
 library(sjPlot) # Produce model output tables for print
@@ -18,10 +28,10 @@ colorassumption <- "darkred"
 colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
 n_uncertainty <- 300
-n_ppp_per_set <- 1000
+n_ppp_per_set <- 200
 N_sim <- 1000
 showsim <- FALSE
-showBayes <- FALSE
+showBayes <- TRUE
 # How should revisits to the same individual be counted?
 revisitoption <- "no reward" # counted as a visit with 0 reward
 # revisitoption <- "not counted" # not counted as visit at all
@@ -210,6 +220,8 @@ sim_choice <- function(probabilities) {
   choices <- ifelse(choice_roll<probabilities, 1, 0)
   return(choices)
 }
+## !!!!!!! Should the choice values be 0 and 1 or A and B? What is in the original
+##data ??
 
 # Parameter values chosen for simulation; parameters don't mean quite the same here
 slope_value <- 0.5
@@ -218,7 +230,8 @@ slope_valxfam <- 0.8
 intercept <- 0
 rnd_expl_simpar <- 0.7
 dir_expl_simpar <- 0.4
-# Note that the current code does not allow for simulating an order_effect <- 0
+#order_effect <- 0.1
+# Note that the current code doesn't actually allow for an order effect. 
 
 # There is no attempt here to simulate an actual experiment; we merely
 # simulate a dataset that varies these parameters uniformly and independently, 
@@ -265,6 +278,78 @@ ifelse(showsim
 ## end sim ---------------------------
 #####################################################################
 #### Bayesian model setup --------------------------------------
+## First, define priors and other assumptions -------------------
+# Priors involve the probability distributions of all the parameters, so typically
+# means and standard deviations.
+intercept_prior_mean <- 0
+intercept_prior_SD <- 0.3
+slopeval_prior_mean <- 1
+slopeval_prior_sd <- 0.5
+slopefam_prior_mean <- 0
+slopefam_prior_sd <- 2
+slopevf_prior_mean <- 0
+slopevf_prior_sd <- 2
+rnd_explor_prior_mean <- 0
+rnd_explor_prior_sd <- 2
+dir_explor_prior_mean <- 0
+dir_explor_prior_sd <- 2
+exp_prior_mean <- 0
+exp_prior_sd <- 2
+
+## Model assumption list ---------------
+## The model is specified in the assumptions, and should match what we previously
+## decided as the 'generative' model, i.e. the one used to make the simdata. 
+## I am using the functions & format for the Bayesian model from Richard McElreath's
+## 'Statistical Rethinking' book and the accompanying package 'rethinking'.
+list_of_assumptions <- alist(
+  # Actual output is list of choices CL
+  # Analogous to picking points based on a model and error term, here we pick actual
+  # choices based on the probability (~model). There is no 'error term'.
+  # Note all the dbinom, dnorm functions describe the probability density functions.
+  CL ~ dbinom(1, prob), 
+  # This is the core model formula
+  # Essentially this is the same as the way we simulated data, and also as the model for 
+  # the maze experiment, with one difference: we also here allow for an order effect.
+  # We're not modeling any interaction between order and exploration, value, etc.
+  logit(prob) <- a + (b+rnd*hor)*val + (c+dir*hor)*fam + d*val*fam + exp * ord, 
+  # And the following describes the priors for the parameters
+  a ~ dnorm(intercept_prior_mean, intercept_prior_SD), 
+  b ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
+  c ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
+  d ~ dnorm(slopevf_prior_mean, slopevf_prior_sd),
+  rnd ~ dnorm(rnd_explor_prior_mean, rnd_explor_prior_sd),
+  dir ~ dnorm(dir_explor_prior_mean, dir_explor_prior_sd),
+  exp ~ dnorm(exp_prior_mean, exp_prior_sd)
+)
+
+## Bayesian estimation function ------------------
+# We're going to use quap() for the actual estimation. 
+# We may or may not need 'start' to help the model converge on a solution. 
+# This is not a prior and should not affect the actual resulting estimates.
+start <- function(dat) {
+  return(
+    list(
+      a = intercept_prior_mean
+      , b = slopeval_prior_mean
+      , c = slopefam_prior_mean
+      , d = slopevf_prior_mean
+      , rnd = rnd_explor_prior_mean
+      , dir = dir_explor_prior_mean
+      , exp = exp_prior_mean
+    )
+  )
+}
+# CL stands for choice list, val is the value or reward difference between the options,
+# fam is the familiarity difference between the options. 
+# Both for Horizon and Order, we want to change the numbers 1 vs 2 into 0 vs 1
+ExplorModel <- function(dat) {
+  quap(
+    list_of_assumptions
+    , data = list(CL = dat$chose_flowerA, val = dat$PropValDiff_FlowerA, fam = dat$RelativeFamiliarity_FlowerA, hor = (as.numeric(dat$Horizon)-1), ord = (as.numeric(dat$Order)-1))
+    , start = start(dat)
+  )
+}
+
 
 #####################################################################
 ## Barplot of the first choices of bees where they did not have equal information ------------
@@ -339,13 +424,24 @@ tab_model(dirExpl_HI_modA
           , dv.labels = "Effect on probability of choosing less familiar flower"
 )
 
+#### Bayesian fits ----------------------------------------------
+posterior_bees <- ExplorModel(dat)
+# Extracting values from Bayesian model for graphing
+samples_of_post <- extract.samples(posterior_bees, n=n_uncertainty)
+intercepts_post <- samples_of_post$a
+slopes_c <- samples_of_post$b
+slopes_f <- samples_of_post$c
+slopes_cf <- samples_of_post$d
+rnd_expl <- samples_of_post$rnd
+dir_expl <- samples_of_post$dir
+slope_ord <- samples_of_post$exp
 ######################################################################
 #### FIGURES ------------------------------
 ## Note that Fig 5 can come out significantly differently looking
 ## based on the low sample size and the randomization of what is 
 ## designated 'flower A'. The key is to remember that for 
 ## generalization to be valid, we should be looking at the p-value...
-## Results Fig value x familiarity ---------------------
+## Results Fig I. value x familiarity ---------------------
 ## Illustrate effects of familiarity and value (and interaction) 
 # x - Prop reward diff
 # y - choose flower A
@@ -591,7 +687,7 @@ text(x = -1, y = 1.07, labels = paste("'A' pref (glm): ", int, " +/- ", int_sd, 
 mtext("Concentration Difference", 1, 2, outer = TRUE)
 ### end figure -------------------------
 
-## Results Fig 5 value + familiarity shown separately ---------------------
+## Results Fig II. (Fig 5 in ms) value + familiarity shown separately ---------------------
 ## Illustrate effects of familiarity and value 
 ## (values on the other factor pooled)
 # x - Prop reward diff or Prop familiarity diff
@@ -627,13 +723,17 @@ for(i in 1:n_uncertainty) {
         , col = alpha(colorsfam[1], transparency_glm_uncertainty)
         , lwd = 3
   )
-  #  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
-  #                      , from = -2, to = 2
-  #                      , add = TRUE
-  #                      , lwd = 3
-  #                      , col = alpha("grey34", transparency_Bay_uncertainty)
-  #                      , lty = 2
-  #  )
+  # The model formula for the Bayesian fit is given above in the 'Model assumptions'
+  # section. It is:
+  #   logit(prob) <- a + (b+rnd*hor)*val + (c+dir*hor)*fam + d*val*fam + exp * ord
+  # So the code below is giving us the fits for horizon = 0 and order = 0. 
+  if(showBayes) curve(probs_from_pars(0, x, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+                      , from = -2, to = 2
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
 }
 
 # 'True' relationship if using simdata; note that this is just for familiarity
@@ -656,16 +756,16 @@ points(jitter(chose_flowerA, factor = 0.2) ~ RelativeFamiliarity_FlowerA
 )
 
 # Plotting Bayesian fit line
-#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
-#                                    , precis(posterior_bees)[2,1]
-#                                    , precis(posterior_bees)[3,1]
-#                                    , precis(posterior_bees)[4,1])
-#                    , from = -2, to = 2
-#                    , add = TRUE
-#                    , lwd = 4
-#                    , col = "grey34"
-#                    , lty = 2
-#)
+if(showBayes) curve(probs_from_pars(0, x, precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[4,1])
+                    , from = -2, to = 2
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
 
 # Plotting the estimated fit from the glm:
 curve(probs_from_pars(x, 0, interc, par1, 0, 0)
@@ -740,13 +840,44 @@ curve(probs_from_pars(x, 0, interc, par1, 0, 0)
 
 
 
-## Results Fig horizon x order ---------------------
+## Results Fig III. (Supplementary?) horizon x order ---------------------
 # x value of informative
 # y chose informative
 # panels order 1 order 2
 # horizon 2 vs 16 as different colors
 # Since this figure shows the choices of the informative flower,
 # what it looks like is independent of what is designated 'flower A'.
+## Bayesian analysis -----------------------
+# The Bayesian model above really includes both random and directed exploration. But
+# to directly compare the parameters between that and this directed exploration test,
+# we need to convert the parameters such that we treat 'choosing the low familiarity option' 
+# as the response variable. 
+# We can simply make a posterior predictive distribution of essentially simulated 
+# points according to the posteriors for the parameters. 
+set_of_valuediffs <- c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1)
+valuediffs <- sample(set_of_valuediffs, n_ppp_per_set, replace = TRUE)
+famdiffs <- sample(c(-1, 1), n_ppp_per_set, replace = TRUE)
+horizons <- sample(c(0, 1), n_uncertainty, replace = TRUE)
+orders <- sample(c(0, 1), n_uncertainty, replace = TRUE)
+PPPoints <- data.frame(NULL)
+# logit(prob) <- a + (b+rnd*hor)*val + (c+dir*hor)*fam + d*val*fam + exp * ord
+for(i in 1:n_uncertainty) {
+  choices <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercepts_post[i] + slope_ord[i]*orders[i], slopes_c[i]+rnd_expl[i]*horizons[i], slopes_f[i]+dir_expl[i]*horizons[i], slopes_cf[i]))
+  set <- data.frame(choice = choices, PropValDiff_FlowerA = valuediffs, RelativeFamiliarity_FlowerA = famdiffs, Horizon = horizons[i], Order = orders[i], Set = i)
+  PPPoints <- rbind(PPPoints, set)
+}
+flip_these <- subset(PPPoints, PPPoints$RelativeFamiliarity_FlowerA > 0)
+flip_these$choice <- ifelse(flip_these$choice == 1, 0, 1)
+## !! This code above needs changing if choices are A and B instead of 0 and 1
+flip_these$RelativeFamiliarity_FlowerA <- -1*flip_these$RelativeFamiliarity_FlowerA
+flip_these$PropValDiff_FlowerA <- -1*flip_these$PropValDiff_FlowerA
+PPPoints <- rbind(subset(PPPoints, PPPoints$RelativeFamiliarity_FlowerA < 0), flip_these)
+# Now, for all these points, the "right" choice is the low-familiarity
+# option.
+# Each 'set' here has the same parameter values drawn together from the posterior, 
+# but different specific value differences between options. Familiarity difference
+# is always -1.
+
 par(mfrow=c(1,2))
 par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
 # Each panel doing its own modeling separately
@@ -755,6 +886,8 @@ par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, t
 d_graph <- subset(dat, dat$Order == 1)
 d_graph1 <- subset(d_graph, d_graph$Horizon == 2)
 d_graph2 <- subset(d_graph, d_graph$Horizon == 16)
+PPPoints_panel1_H1 <- subset(PPPoints, PPPoints$Order == 0 & PPPoints$Horizon == 0)
+PPPoints_panel1_H2 <- subset(PPPoints, PPPoints$Order == 0 & PPPoints$Horizon == 1)
 # Plot frame
 plot(NULL
      , ylab = ""
@@ -776,6 +909,7 @@ fit_covar_matrix_2 <- mvrnorm(n_uncertainty, mu=c(interc_2, par1_2), Sigma=vcov(
 interc_16 <- Expl_modA_16$coefficients[[1]]
 par1_16 <- Expl_modA_16$coefficients[[2]]
 fit_covar_matrix_16 <- mvrnorm(n_uncertainty, mu=c(interc_16, par1_16), Sigma=vcov(Expl_modA_16))
+PPD_prob <- array(NaN, c(length(set_of_valuediffs), n_uncertainty, 2))
 for(i in 1:n_uncertainty) {
   curve(probs_from_pars(x, 0, fit_covar_matrix_2[i,1], fit_covar_matrix_2[i,2], 0, 0)
         , from = -1, to = 1
@@ -789,13 +923,34 @@ for(i in 1:n_uncertainty) {
         , col = alpha(colorshor[2], transparency_glm_uncertainty)
         , lwd = 3
   )
-  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
-                      , from = -2, to = 2
-                      , add = TRUE
-                      , lwd = 3
-                      , col = alpha("grey34", transparency_Bay_uncertainty)
-                      , lty = 2
-  )
+  # Plotting Bayesian PPD
+  if(showBayes) {
+    # We want to plot a probability, not an actual choice point. 
+    # First we subset the posterior predicted points to a single set of parameters
+    # and a horizon x order combination, then we calculate how many of them were
+    # choice '1' and thus the probability of choosing A (or, here, the familiar flower).
+    # Then we plot a line connecting these probabilities across the value differences.
+    # Since these are lines between effectively simulated points (albeit with model-
+    # fit parameters), they aren't smooth functions. 
+    for(j in 1:length(set_of_valuediffs)) {
+      PPPs <- subset(PPPoints_panel1_H1, PPPoints_panel1_H1$Set==i & PPPoints_panel1_H1$PropValDiff_FlowerA==set_of_valuediffs[j])
+      PPD_prob[j, i, 1] <- length(subset(PPPs$choice, PPPs$choice==1))/length(PPPs$choice)
+      PPPs <- subset(PPPoints_panel1_H2, PPPoints_panel1_H2$Set==i & PPPoints_panel1_H2$PropValDiff_FlowerA==set_of_valuediffs[j])
+      PPD_prob[j, i, 2] <- length(subset(PPPs$choice, PPPs$choice==1))/length(PPPs$choice)
+    }
+    if(length(PPD_prob[,i,1]) == length(set_of_valuediffs))
+    lines(PPD_prob[,i, 1] ~ set_of_valuediffs
+          , col = alpha("grey34", transparency_Bay_uncertainty)
+          , lwd = 3
+          , lty = 2
+    )
+    if(length(PPD_prob[,i,2]) == length(set_of_valuediffs))
+    lines(PPD_prob[,i, 2] ~ set_of_valuediffs
+          , col = alpha("grey34", transparency_Bay_uncertainty)
+          , lwd = 3
+          , lty = 3
+    )
+  }
 }
 
 # 'True' relationship if using simdata for horizon = 2
@@ -822,17 +977,17 @@ points(jitter(choseInformative, factor = 0.2) ~ PropValDiff_FlowerA
        , cex = 2
 )
 
-# Plotting Bayesian fit line
-#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
-#                                    , precis(posterior_bees)[2,1]
-#                                    , precis(posterior_bees)[3,1]
-#                                    , precis(posterior_bees)[4,1])
-#                    , from = -2, to = 2
-#                    , add = TRUE
-#                    , lwd = 4
-#                    , col = "grey34"
-#                    , lty = 2
-#)
+# Plotting average of the Bayesian posterior predicted fits
+lines(rowMeans(PPD_prob[,, 1], na.rm = TRUE) ~ set_of_valuediffs
+      , col = "grey34"
+      , lwd = 3
+      , lty = 2
+)
+lines(rowMeans(PPD_prob[,, 2], na.rm = TRUE) ~ set_of_valuediffs
+      , col = "grey34"
+      , lwd = 3
+      , lty = 3
+)
 
 # Plotting the estimated fit from the glm:
 curve(probs_from_pars(x, 0, interc_2, par1_2, 0, 0)
@@ -850,6 +1005,8 @@ curve(probs_from_pars(x, 0, interc_16, par1_16, 0, 0)
 d_graph <- subset(dat, dat$Order == 2)
 d_graph1 <- subset(d_graph, d_graph$Horizon == 2)
 d_graph2 <- subset(d_graph, d_graph$Horizon == 16)
+PPPoints_panel2_H1 <- subset(PPPoints, PPPoints$Order == 1 & PPPoints$Horizon == 0)
+PPPoints_panel2_H2 <- subset(PPPoints, PPPoints$Order == 1 & PPPoints$Horizon == 1)
 # Plot frame
 plot(NULL
      , ylab = ""
@@ -871,6 +1028,7 @@ fit_covar_matrix_2 <- mvrnorm(n_uncertainty, mu=c(interc_2, par1_2), Sigma=vcov(
 interc_16 <- Expl_modA_16$coefficients[[1]]
 par1_16 <- Expl_modA_16$coefficients[[2]]
 fit_covar_matrix_16 <- mvrnorm(n_uncertainty, mu=c(interc_16, par1_16), Sigma=vcov(Expl_modA_16))
+PPD_prob <- array(NaN, c(length(set_of_valuediffs), n_uncertainty, 2))
 for(i in 1:n_uncertainty) {
   curve(probs_from_pars(x, 0, fit_covar_matrix_2[i,1], fit_covar_matrix_2[i,2], 0, 0)
         , from = -1, to = 1
@@ -884,13 +1042,27 @@ for(i in 1:n_uncertainty) {
         , col = alpha(colorshor[2], transparency_glm_uncertainty)
         , lwd = 3
   )
-  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
-                      , from = -2, to = 2
-                      , add = TRUE
-                      , lwd = 3
-                      , col = alpha("grey34", transparency_Bay_uncertainty)
-                      , lty = 2
-  )
+  # Plotting Bayesian PPD
+  if(showBayes) {
+    for(j in 1:length(set_of_valuediffs)) {
+      PPPs <- subset(PPPoints_panel2_H1, PPPoints_panel2_H1$Set==i & PPPoints_panel2_H1$PropValDiff_FlowerA==set_of_valuediffs[j])
+      PPD_prob[j, i, 1] <- length(subset(PPPs$choice, PPPs$choice==1))/length(PPPs$choice)
+      PPPs <- subset(PPPoints_panel2_H2, PPPoints_panel2_H2$Set==i & PPPoints_panel2_H2$PropValDiff_FlowerA==set_of_valuediffs[j])
+      PPD_prob[j, i, 2] <- length(subset(PPPs$choice, PPPs$choice==1))/length(PPPs$choice)
+    }
+    if(length(PPD_prob[,i,1]) == length(set_of_valuediffs))
+    lines(PPD_prob[,i, 1] ~ set_of_valuediffs
+          , col = alpha("grey34", transparency_Bay_uncertainty)
+          , lwd = 3
+          , lty = 2
+    )
+    if(length(PPD_prob[,i,2]) == length(set_of_valuediffs))
+    lines(PPD_prob[,i, 2] ~ set_of_valuediffs
+          , col = alpha("grey34", transparency_Bay_uncertainty)
+          , lwd = 3
+          , lty = 3
+    )
+  }
 }
 
 # 'True' relationship if using simdata for horizon = 2
@@ -917,17 +1089,17 @@ points(jitter(choseInformative, factor = 0.2) ~ PropValDiff_FlowerA
        , cex = 2
 )
 
-# Plotting Bayesian fit line
-#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
-#                                    , precis(posterior_bees)[2,1]
-#                                    , precis(posterior_bees)[3,1]
-#                                    , precis(posterior_bees)[4,1])
-#                    , from = -2, to = 2
-#                    , add = TRUE
-#                    , lwd = 4
-#                    , col = "grey34"
-#                    , lty = 2
-#)
+# Plotting average of the Bayesian posterior predicted fits
+lines(rowMeans(PPD_prob[,, 1], na.rm = TRUE) ~ set_of_valuediffs
+      , col = "grey34"
+      , lwd = 3
+      , lty = 2
+)
+lines(rowMeans(PPD_prob[,, 2], na.rm = TRUE) ~ set_of_valuediffs
+      , col = "grey34"
+      , lwd = 3
+      , lty = 3
+)
 
 # Plotting the estimated fit from the glm:
 curve(probs_from_pars(x, 0, interc_2, par1_2, 0, 0)

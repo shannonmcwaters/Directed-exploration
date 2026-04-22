@@ -22,8 +22,8 @@ transparency_Bay_uncertainty <- 0.018 #0.15
 colorassumption <- "darkred"
 colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
-n_uncertainty <- 300
-n_ppp_per_set <- 2000
+n_uncertainty <- 300 
+n_ppp_per_set <- 200 
 N_sim <- 1000
 showsim <- FALSE
 showBayes <- TRUE
@@ -727,6 +727,7 @@ int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2)
 int_sd <- round(probs_from_pars(0, 0, interc+summary(H1_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Extracting uncertainty
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H1_Expl_mod))
+PPD_prob <- array(NaN, c(length(set_of_valuediffs), n_uncertainty))
 for(i in 1:n_uncertainty) {
   curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
@@ -737,18 +738,27 @@ for(i in 1:n_uncertainty) {
   if(showBayes) {
     # We want to plot a probability, not an actual choice point. 
     # This will get us the Bayesian fit line.
-    PPD_prob <- numeric(length=length(set_of_valuediffs))
     for(j in 1:length(set_of_valuediffs)) {
       PPPs <- subset(PPPoints_panel1, PPPoints_panel1$Set==i & PPPoints_panel1$RightConcentrationDiff==set_of_valuediffs[j])
-      PPD_prob[j] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
+      PPD_prob[j, i] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
     }
-    lines(PPD_prob ~ set_of_valuediffs
+    if(length(PPD_prob[,i]) == length(set_of_valuediffs))
+    lines(PPD_prob[,i] ~ set_of_valuediffs
            , col = alpha("grey34", transparency_Bay_uncertainty)
           , lwd = 3
           , lty = 2
     )
   }
 }
+
+# Plotting average of the Bayesian posterior predicted fits
+if(length(rowMeans(PPD_prob, na.rm = TRUE)) == length(set_of_valuediffs))
+  lines(rowMeans(PPD_prob, na.rm = TRUE) ~ set_of_valuediffs
+      , col = "grey34"
+      , lwd = 3
+      , lty = 2
+)
+
 # Original data points with slight jitter
 points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
        , data = d_graph
@@ -756,6 +766,7 @@ points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, 
        , col = alpha(colorshor[1], 0.5)
        , cex = 1.5
 )
+
 # Plotting the estimated fit from the glm:
 # (We're doing this last instead of earlier so it comes out on top for better
 # visibility.)
@@ -800,6 +811,7 @@ int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2)
 int_sd <- round(probs_from_pars(0, 0, interc+summary(H6_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Bayesian model and extracting estimates
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H6_Expl_mod))
+PPD_prob <- array(NaN, c(length(set_of_valuediffs), n_uncertainty))
 for(i in 1:n_uncertainty) {
   curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
@@ -810,18 +822,25 @@ for(i in 1:n_uncertainty) {
   if(showBayes) {
     # We want to plot a probability, not an actual choice point. 
     # This will get us the Bayesian fit line.
-    PPD_prob <- numeric(length=length(set_of_valuediffs))
     for(j in 1:length(set_of_valuediffs)) {
       PPPs <- subset(PPPoints_panel2, PPPoints_panel2$Set==i & PPPoints_panel2$RightConcentrationDiff==set_of_valuediffs[j])
-      PPD_prob[j] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
+      PPD_prob[j,i] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
     }
-    lines(PPD_prob ~ set_of_valuediffs
+    if(length(PPD_prob[,i]) == length(set_of_valuediffs))
+    lines(PPD_prob[,i] ~ set_of_valuediffs
           , col = alpha("grey34", transparency_Bay_uncertainty)
           , lwd = 3
           , lty = 2
     )
   }
 }
+# Plotting average of the Bayesian posterior predicted fits
+if(length(rowMeans(PPD_prob, na.rm = TRUE)) == length(set_of_valuediffs))
+  lines(rowMeans(PPD_prob, na.rm = TRUE) ~ set_of_valuediffs
+        , col = "grey34"
+        , lwd = 3
+        , lty = 2
+  )
 # Original data points with slight jitter
 points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
        , data = d_graph
