@@ -4,11 +4,18 @@
 # Data analysis & graphs - part 2: ARENA
 
 ## Problems !!! 
-## Fig I Bayesian plots wrong
-## Overall, need to include order x value interaction as well as possibly
-## order x horizon interaction - original bar graph assumes the former
-## In no case makes an order effect on intercept (choosing flower A) make
-## sense. 
+## MAZE Exp
+# - Bayes for prob choosing unfamiliar
+# - fam diffs needs to go - instead for all models have absolute familiarity
+# - maybe even familiarity with both options as separate factors?
+# - 
+
+## ARENA Exp
+# - use avg val diff instead of pro val diff
+# - debug 'all choices' and include as option
+# - order only as interacting with value (and familiarity or horizon?)
+
+
 ## Big overall question also for maze experiment: does it make more sense to
 ## model in the Bayesian model the probability of choosing the familiar flower?
 ## Use plot(precis(posterior_bees)) for both experiments and models?
@@ -22,8 +29,8 @@ library(viridis)
 colorsfam <- viridis(3, begin = 0.2, end = 0.8)
 colorshor <- inferno(2, begin = 0.2, end = 0.8)
 colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
-transparency_glm_uncertainty <- 0.01 #0.1
-transparency_Bay_uncertainty <- 0.018 #0.15
+transparency_glm_uncertainty <- 0.1 #0.01 #0.1
+transparency_Bay_uncertainty <- 0.15 #0.018 #0.15
 colorassumption <- "darkred"
 colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
@@ -31,7 +38,7 @@ n_uncertainty <- 300
 n_ppp_per_set <- 200
 N_sim <- 1000
 showsim <- FALSE
-showBayes <- TRUE
+showBayes <- FALSE #TRUE
 # How should revisits to the same individual be counted?
 revisitoption <- "no reward" # counted as a visit with 0 reward
 # revisitoption <- "not counted" # not counted as visit at all
@@ -273,7 +280,7 @@ simdata$PropValDiff_Fam <- ifelse(simdata$RelativeFamiliarity_FlowerA < 0
 # Choose dataset to use -------------------------
 ifelse(showsim
        , dat <- simdata
-       , dat <- TestChoice # or ArenaDataLong
+       , dat <- ArenaDataLong #TestChoice # or ArenaDataLong
 )
 ## end sim ---------------------------
 #####################################################################
@@ -476,13 +483,13 @@ for(i in 1:n_uncertainty) {
         , col = alpha(colorsfam[1], transparency_glm_uncertainty)
         , lwd = 3
   )
-#  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
-#                      , from = -2, to = 2
-#                      , add = TRUE
-#                      , lwd = 3
-#                      , col = alpha("grey34", transparency_Bay_uncertainty)
-#                      , lty = 2
-#  )
+  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+                      , from = -2, to = 2
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
 }
 
 # 'True' relationship if using simdata; note that this is just for familiarity
@@ -505,16 +512,16 @@ points(jitter(chose_flowerA, factor = 0.2) ~ PropValDiff_FlowerA
 )
 
 # Plotting Bayesian fit line
-#if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
-#                                    , precis(posterior_bees)[2,1]
-#                                    , precis(posterior_bees)[3,1]
-#                                    , precis(posterior_bees)[4,1])
-#                    , from = -2, to = 2
-#                    , add = TRUE
-#                    , lwd = 4
-#                    , col = "grey34"
-#                    , lty = 2
-#)
+if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[4,1])
+                    , from = -2, to = 2
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
 
 # Plotting the estimated fit from the glm:
 curve(probs_from_pars(x, -1, interc, par1, 0, 0)

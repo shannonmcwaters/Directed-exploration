@@ -17,15 +17,15 @@ MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-
 colorsfam <- viridis(3, begin = 0.2, end = 0.8)
 colorshor <- inferno(2, begin = 0.2, end = 0.8)
 colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
-transparency_glm_uncertainty <- 0.01 #0.1
-transparency_Bay_uncertainty <- 0.018 #0.15
+transparency_glm_uncertainty <- 0.1 #0.01 #0.1
+transparency_Bay_uncertainty <- 0.15 #0.018 #0.15
 colorassumption <- "darkred"
 colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
 n_uncertainty <- 300 
 n_ppp_per_set <- 200 
 N_sim <- 1000
-showsim <- FALSE
+showsim <- TRUE
 showBayes <- TRUE
 
 # Data formatting ---------------------------------
@@ -122,14 +122,13 @@ simdata$RightFamiliarity <- factor(
   ),
   levels = c("Low Familiarity", "Equal", "High Familiarity")
 )
-
+## Choose data to use ----------------------------
 ifelse(showsim
        , dat <- simdata
        , dat <- MazeData
 )
 # Bayesian analysis with quap ----------------------
-
-## First, define priors and other assumptions -------------------
+## First, define priors -------------------
 # Priors involve the probability distributions of all the parameters, so typically
 # means and standard deviations.
 intercept_prior_mean <- 0
@@ -141,7 +140,7 @@ slopefam_prior_sd <- 2
 slopevf_prior_mean <- 0
 slopevf_prior_sd <- 2
 
-## Model assumption list ---------------
+## Model structure and assumption list ---------------
 ## The model is specified in the assumptions, and should match what we previously
 ## decided as the 'generative' model, i.e. the one used to make the simdata. 
 ## I am using the functions & format for the Bayesian model from Richard McElreath's
@@ -187,6 +186,7 @@ BeeChoiceModel <- function(dat) {
 
 # I. GLM & Bayes full ------------------------
 chooseRmod_full <- glm(chose_R_numeric ~ RightConcentrationDiff * famdiffs, family = binomial, data = dat)
+
 # Bayesian model full
 posterior_bees <- BeeChoiceModel(dat)
 # Done! The parameter estimates here are for the entire model/dataset, so 
@@ -655,6 +655,7 @@ tab_model(rndExploration_mod
 ## GLM for directed exploration -----------------------
 dirExpl_HI_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, family = binomial, data = dat)
 ## Bayesian analysis -----------------------
+# Calculating prob to choose unfamiliar flower from post pred distribution ----------
 # The Bayesian model above really includes both random and directed exploration. But
 # to directly compare the parameters between that and this directed exploration test,
 # we need to convert the parameters such that we treat 'choosing the low familiarity option' 
@@ -681,7 +682,12 @@ PPPoints <- rbind(subset(PPPoints, PPPoints$famdiffs < 0), flip_these)
 # Each 'set' here has the same parameter values drawn together from the posterior, 
 # but different specific value differences between options. Familiarity difference
 # is always -1.
-
+## Bayesian model II with prob of unfamiliar as response variable --------------
+# NOT DONE ---------------
+### Priors ---------------------------------
+### Model structure and assumptions --------------------
+### Bayesian estimation function -----------------------
+### Running the Bayesian analysis ----------------------
 ## Table III. Directed exploration GLM --------------
 tab_model(dirExpl_HI_mod
           , show.re.var = TRUE
