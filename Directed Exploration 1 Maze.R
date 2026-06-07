@@ -2,22 +2,29 @@
 # (c) 2020-2026
 # Directed Exploration in Bumble bees
 # Data analysis & graphs - part 1: MAZE
+# SET THESE OPTIONS BEFORE RUNNING SCRIPT -----------------
+showsim <- FALSE
+showBayes <- TRUE
+showDetail <- FALSE
+saveFigs <- FALSE
+figs_path <- paste(getwd(), "/Figures", sep = "")
 
 # Packages used ---------------------
 library(tidyverse) # Data handling/converting
 library(lme4) # Linear models
 library(sjPlot) # For nice table output
-library(viridis)
+library(viridis) # Color scale
 library(MASS) # For simulating from covariance matrix
-library(rethinking)
+library(rethinking) # For Bayesian analysis
+library(R.utils) # To insert a value in a vector 
 
 # Importing data for experiment 1 directly from github -----------------------
 MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Maze%20Data%20Raw")
-# Colors & options -----------------------------
+# Colors -----------------------------
 colorsfam <- viridis(3, begin = 0.2, end = 0.8)
 colorshor <- inferno(2, begin = 0.2, end = 0.8)
 colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
-transparency_glm_uncertainty <- 0.1 #0.01 #0.1
+transparency_glm_uncertainty <- 0.05 #0.01 #0.1
 transparency_Bay_uncertainty <- 0.15 #0.018 #0.15
 colorassumption <- "darkred"
 colorprior <- "slateblue"
@@ -25,9 +32,6 @@ colorprior <- "slateblue"
 n_uncertainty <- 300 
 n_ppp_per_set <- 200 
 N_sim <- 1000
-showsim <- TRUE
-showBayes <- TRUE
-
 # Data formatting ---------------------------------
 MazeData$Horizon <- as.factor(MazeData$Horizon)
 # Adding a column 'HighInfoChoice' indicating which choice (flower type) the bees
@@ -48,7 +52,7 @@ MazeData <- MazeData %>%
 # When bees have more information about one flower type, we define the concentration
 # difference as (High Information - Low Information) 
 MazeData <- MazeData %>%
-  mutate(HighInfoConcentrationDiff = ifelse(Info_Treatment == "HL", -ConcentrationDifference, ifelse(Info_Treatment == "EG", NA, ConcentrationDifference)))
+  mutate(HighInfoConcentrationDiff = ifelse(Info_Treatment == "EQ", NA, ifelse(Info_Treatment == "HL", -ConcentrationDifference, ConcentrationDifference)))
 
 # We also calculate the concentration difference relative to the flower on the right,
 # as well as the information they have about the flower on the right
@@ -73,36 +77,110 @@ MazeData <- MazeData %>%
                                    levels = c("HighInfo", "EQ", "LowInfo"),
                                    labels = c("Low Familiarity", "Equal", "High Familiarity"))
   )
-
+MazeData$ColorChosen[MazeData$ColorChosen=="LimeGreen"] <- "Light Green"
+MazeData$ColorChosen[MazeData$ColorChosen=="Lime Green"] <- "Light Green"
+MazeData$ColorChosen <- as.factor(MazeData$ColorChosen)
+MazeData$ColorChosen <- factor(MazeData$ColorChosen, levels = c("Red", "Light Blue", "Green", "Orange", "Dark Blue", "White", "Light Green", "Black"))
+MazeData$ColorNotChosen <- ifelse(as.numeric(MazeData$ColorChosen) %in% c(1,3,5,7), as.numeric(MazeData$ColorChosen)+1, as.numeric(MazeData$ColorChosen)-1)
+MazeData$ColorNotChosen <- as.factor(MazeData$ColorNotChosen)
+levels(MazeData$ColorNotChosen) <- c("Red", "Light Blue", "Green", "Orange", "Dark Blue", "White", "Light Green", "Black")
+colpref <- table(MazeData$ColorChosen) / (table(MazeData$ColorChosen) + table(MazeData$ColorNotChosen))
+MazeData$ColorPref <- as.vector(colpref[MazeData$ColorChosen])
+MazeData$ColorPref[is.na(MazeData$ColorPref)] <- 0.5
+## Figure showing color preferences ----------------------------
+par(mfrow=c(1,1), mar=c(4,4,0,0), oma=c(0,0,0,0))
+colorlist_colors <- c("red3", "deepskyblue", "green4", "orange", "blue3","white","green1", "black")
+spacing <- c(0.1, 0, 0.1, 0, 0.1, 0, 0.1, 0)
+Nice_plot <- barplot(colpref
+        , ylim = c(0,1)
+        , ylab = "Proportion of choices out of available trials"
+        , xlab = "Color"
+        , col = colorlist_colors
+        , space = spacing
+        , cex.names = 0.8
+        )
+textpos <- cumsum(spacing)
+text((1:8)+textpos-0.5, 0.1, paste("n=",table(MazeData$ColorChosen), sep=""), col = c("black","black","black","black","black","black","black","white"))
 #######################################################
 # MODELING PROBABILITY OF CHOOSING FLOWER ON RIGHT AS REWARD x FAMILIARITY ------
+# First, we define some helper functions --------------------------
+# Let's say that bees choose a probability for selecting the left or right flower
+# based on their estimated concentration difference as well as the difference in familiarity.
+probs_from_pars <- function(factor1, factor2, factor3, intercept = 0, slope1 = 0, slope2 = 0, slope1x2 = 0, slope3 = 0) {
+  samplesize <- length(factor1)
+  linear_predictor <- intercept + slope1 * factor1 + slope2 * factor2 + slope1x2 * factor1 * factor2 + slope3 * factor3
+  probability_right <- 1/(1+exp(-linear_predictor))
+  return(probability_right)
+}
+# This function just picks actual choices from probabilities
+sim_choiceR <- function(probabilities) {
+  samplesize <- length(probabilities)
+  choice_roll <- runif(samplesize, 0, 1)
+  choices <- ifelse(choice_roll<probabilities, "right", "left")
+  return(choices)
+}
+# Function to make figure for comparing odds ratios (effect sizes) for both models -------------------------
+model_comp <- function(posterior, model_fit, par_labels, no_pars) {
+  pars_Bayes <- precis(posterior)[,1]
+  pars_GLM <- coef(model_fit)
+  or_Bayes <- exp(pars_Bayes)
+  or_GLM <- exp(pars_GLM)
+  se_Bayes <- precis(posterior)[,2]
+  se_GLM <- summary(model_fit)$coefficients[, 2]
+  upper_Bayes <- exp(pars_Bayes+se_Bayes)
+  lower_Bayes <- exp(pars_Bayes-se_Bayes)
+  upper_GLM <- exp(pars_GLM+se_GLM)
+  lower_GLM <- exp(pars_GLM-se_GLM)
+  par(mfrow=c(1,2))
+  par(mar=c(4, 1, 0.5, 0.5), oma=c(1, 9, 0, 0))
+  plot(NULL
+       , xlim=c(0,3)
+       , ylim=c(0.5, no_pars+0.5)
+       , ylab=""
+       , yaxt = "n"
+       , xlab = "Odds ratio fits from Bayesian model"
+  )
+  axis(side = 2, at = 1:no_pars, labels = par_labels, las = 1, cex = 0.8)
+  abline(v=1, lty = 2, col = "grey")
+  for(i in 1:no_pars) {
+    abline(h=i, lty = 2, col = "grey")
+  }
+  segments(x0 = lower_Bayes, y0 = no_pars:1, 
+           x1 = upper_Bayes, y1 = no_pars:1, 
+           lwd = 4, col = "darkgrey")
+  points(x = or_Bayes, y = no_pars:1, 
+         pch = 19, cex = 1.5, col = "black")
+  #mtext("Factor", side = 2, outer = TRUE, line = 5)
+  plot(NULL
+       , xlim=c(0,3)
+       , ylim=c(0.5, no_pars+0.5)
+       , ylab=""
+       , yaxt = "n"
+       , xlab = "Odds ratio fits from GLM"
+  )
+  abline(v=1, lty = 2, col = "grey")
+  for(i in 1:no_pars) {
+    abline(h=i, lty = 2, col = "grey")
+  }
+  segments(x0 = lower_GLM, y0 = no_pars:1, 
+           x1 = upper_GLM, y1 = no_pars:1, 
+           lwd = 4, col = "darkgrey")
+  points(x = or_GLM, y = no_pars:1, 
+         pch = 19, cex = 1.5, col = "black")
+}
+
 # Data simulation for workflow check and power analysis -----------------------
 
 # So a key first step is to define a generative model that we think underlies the process.
 # This model should have parameters (which we will estimate later using the data)
 # that reflect the question(s) we want to answer.
 
-# First, we define two helper functions:
-# Let's say that bees choose a probability for selecting the left or right flower
-# based on their estimated concentration difference as well as the difference in familiarity.
-probs_from_pars <- function(valuediffs_right, famdiffs_right, intercept, slope_value, slope_familiarity, slope_valxfam) {
-  samplesize <- length(valuediffs_right)
-  linear_predictor <- intercept + slope_value * valuediffs_right + slope_familiarity * famdiffs_right + slope_valxfam * valuediffs_right * famdiffs_right
-  probability_right <- 1/(1+exp(-linear_predictor))
-  return(probability_right)
-}
-# This function just picks actual choices from probabilities
-sim_choice <- function(probabilities) {
-  samplesize <- length(probabilities)
-  choice_roll <- runif(samplesize, 0, 1)
-  choices <- ifelse(choice_roll<probabilities, "right", "left")
-  return(choices)
-}
 
 # Parameter values chosen for simulation
 slope_value <- 0.5
 slope_familiarity <- 0
 slope_valxfam <- 0.8
+slope_color <- 0
 intercept <- 0
 
 # There is no attempt here to simulate an actual experiment; we merely
@@ -110,10 +188,11 @@ intercept <- 0
 # and calculate the resulting 'choice' from the modeled function. 
 valuediffs <- runif(N_sim, min = -2, max = 2)
 famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
+colorprefs <- runif(N_sim, min = 0.3, max = 0.7)
 bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
 
-choices_simdata <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercept, slope_value, slope_familiarity, slope_valxfam))
-simdata <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees)
+choices_simdata <- sim_choiceR(probs_from_pars(valuediffs,  famdiffs, colorprefs, intercept, slope_value, slope_familiarity, slope_valxfam, slope_color))
+simdata <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, ColorPref = colorprefs, Bee = bees)
 simdata$chose_R_numeric <- as.numeric(ifelse(simdata$choice == "right", "1", "0"))
 simdata$RightFamiliarity <- factor(
   ifelse(simdata$famdiffs == 0, "Equal"
@@ -122,25 +201,29 @@ simdata$RightFamiliarity <- factor(
   ),
   levels = c("Low Familiarity", "Equal", "High Familiarity")
 )
+
 ## Choose data to use ----------------------------
-ifelse(showsim
-       , dat <- simdata
-       , dat <- MazeData
-)
+if(showsim) {
+  dat <- simdata
+} else {
+  dat <- MazeData
+}
 # Bayesian analysis with quap ----------------------
 ## First, define priors -------------------
 # Priors involve the probability distributions of all the parameters, so typically
 # means and standard deviations.
-intercept_prior_mean <- 0
-intercept_prior_SD <- 0.3
+intercept_prior_mean <- 0.5
+intercept_prior_sd <- 0.3
 slopeval_prior_mean <- 1
 slopeval_prior_sd <- 0.5
 slopefam_prior_mean <- 0
 slopefam_prior_sd <- 2
 slopevf_prior_mean <- 0
 slopevf_prior_sd <- 2
+slopecol_prior_mean <- 0.5
+slopecol_prior_sd <- 0.1
 
-## Model structure and assumption list ---------------
+## BAYESIAN MODEL FORMUAL and assumption list ---------------
 ## The model is specified in the assumptions, and should match what we previously
 ## decided as the 'generative' model, i.e. the one used to make the simdata. 
 ## I am using the functions & format for the Bayesian model from Richard McElreath's
@@ -152,70 +235,80 @@ list_of_assumptions <- alist(
   # Note all the dbinom, dnorm functions describe the probability density functions.
   CL ~ dbinom(1, prob), 
   # This is the core model formula
-  logit(prob) <- a + b*val + c*fam + d*val*fam, 
+  logit(prob) <- intpt + pval*val + pfam*fam + pcol * col + pvxf*val*fam, 
   # And the following describes the priors for the parameters
-  a ~ dnorm(intercept_prior_mean, intercept_prior_SD), 
-  b ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
-  c ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
-  d ~ dnorm(slopevf_prior_mean, slopevf_prior_sd)
+  intpt ~ dnorm(intercept_prior_mean, intercept_prior_sd),
+  pval ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
+  pfam ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
+  pcol ~ dnorm(slopecol_prior_mean, slopecol_prior_sd),
+  pvxf ~ dnorm(slopevf_prior_mean, slopevf_prior_sd)
 )
-
-## Bayesian estimation function ------------------
-# We're going to use quap() for the actual estimation. 
 # We may or may not need 'start' to help the model converge on a solution. 
 # This is not a prior and should not affect the actual resulting estimates.
 start <- function(dat) {
   return(
     list(
-      a = intercept_prior_mean
-      , b = slopeval_prior_mean
-      , c = slopefam_prior_mean
-      , d = slopevf_prior_mean
+      intpt = intercept_prior_mean
+      , pval = slopeval_prior_mean
+      , pfam = slopefam_prior_mean
+      , pcol = slopecol_prior_mean
+      , pvxf = slopevf_prior_mean
     )
   )
 }
+
+## Bayesian estimation function ------------------
+# We're going to use quap() for the actual estimation. 
 # CL stands for choice list, val is the value or reward difference between the options,
 # fam is the familiarity difference between the options. 
-BeeChoiceModel <- function(dat) {
+BayesChooseR <- function(dat) {
   quap(
     list_of_assumptions
-    , data = list(CL = dat$chose_R_numeric, val = dat$RightConcentrationDiff, fam = dat$famdiffs)
+    , data = list(CL = dat$chose_R_numeric, val = dat$RightConcentrationDiff, fam = dat$famdiffs, col = dat$ColorPref)
     , start = start(dat)
   )
 }
 
-# I. GLM & Bayes full ------------------------
-chooseRmod_full <- glm(chose_R_numeric ~ RightConcentrationDiff * famdiffs, family = binomial, data = dat)
+# I. GLM & Bayes  choose right ------------------------
+chooseR <- glm(chose_R_numeric ~ RightConcentrationDiff * famdiffs + ColorPref, family = binomial, data = dat)
 
-# Bayesian model full
-posterior_bees <- BeeChoiceModel(dat)
-# Done! The parameter estimates here are for the entire model/dataset, so 
-# not directly comparable to the ones from the separate glms for each
-# familiarity level. We'll do an overall glm now. 
+# Bayesian model for choosing right flower
+posterior_bees <- BayesChooseR(dat)
+# Done!
 
-# Extracting values from Bayesian model for graphing
-samples_of_post <- extract.samples(posterior_bees, n=n_uncertainty)
-intercepts_post <- samples_of_post$a
-slopes_c <- samples_of_post$b
-slopes_f <- samples_of_post$c
-slopes_cf <- samples_of_post$d
-
-## Table I. Full GLM  -------------------------
-tab_model(chooseRmod_full
+## Table I. GLM  -------------------------
+tab_model(chooseR
           , show.re.var = TRUE
           , pred.labels = c("Intercept"
                             , "Reward Difference (concentration right - left)"
                             , "Familiarity Difference (right - left)"
+                            , "Color Bias"
                             , "Interaction Rew Diff x Fam Diff"
           )
           , dv.labels = "Effect on probability of choosing right flower"
 )
+#######################################################
+## Effect sizes figure - Fig S2 to go with Fig. 3 -------------------------
+lab <- c("Interaction Val x Fam", "Color", "Familiarity", "Value", "Intercept")
+model_comp(posterior_bees, chooseR, lab, 5)
 
-## Results Fig 1 - detailed version in base R with Bayesian and and GLM results -----------
+## Results Fig 3 - detailed version in base R with Bayesian and and GLM results -----------
+# Extracting values from Bayesian model for graphing
+samples_of_post <- extract.samples(posterior_bees, n=n_uncertainty)
+intercepts_post <- samples_of_post$intpt
+slopes_c <- samples_of_post$pval
+slopes_f <- samples_of_post$pfam
+slopes_cf <- samples_of_post$pvxf
+slopes_col <- samples_of_post$pcol
+
 # 3-panel Base R Plot to illustrate binomial fit and uncertainty
+if(saveFigs) {
+  setwd(figs_path)
+  pdf(file = "Fig3 Maze chose right.pdf", width = 10, height = 6)
+}
 # Layout
 par(mfrow=c(1,3))
-par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
+par(oma = c(4,4,0,0), mar = c(1,1,3,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
 # Each panel doing its own modeling separately
 ### Panel 1: LOW FAMILIARITY - model and graph ----------------
 d_graph <- subset(dat, dat$RightFamiliarity == "Low Familiarity")
@@ -256,7 +349,7 @@ fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(choose
 for(i in 1:n_uncertainty) {
   # 'n_uncertainty' (100 or so) lines normally distributed to illustrate the range of
   # plausible fits from GLM. The GLM fit lines are colored, slightly transparent lines. 
-  curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+  curve(probs_from_pars(x, -1, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
         , from = -2, to = 2
         , add = TRUE
         , col = alpha(colorsfam[1], transparency_glm_uncertainty)
@@ -268,7 +361,7 @@ for(i in 1:n_uncertainty) {
   # fits, with a tapering (decreasing) likelihood the further away from the mean
   # or overall fit line they are. 
   # The Bayesian fit lines are grey stripes.
-  if(showBayes) curve(probs_from_pars(x, -1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+  if(showBayes) curve(probs_from_pars(x, -1, 0.5, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
         , from = -2, to = 2
         , add = TRUE
         , lwd = 3
@@ -278,7 +371,7 @@ for(i in 1:n_uncertainty) {
 }
 # 'True' relationship if using simdata
 if(showsim) 
-  curve(probs_from_pars(x,  -1, intercept, slope_value, slope_familiarity, slope_valxfam)
+  curve(probs_from_pars(x,  -1, 0.5, intercept, slope_value, slope_familiarity, slope_valxfam, slope_color)
         , from = -2, to = 2
         , add = TRUE
         , col = colorassumption
@@ -292,45 +385,51 @@ points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightConcentrationDiff, fa
        , col = alpha(colorsfam[1], 0.5)
        , cex = 2
 )
+# Plotting the estimated fit from the glm:
+# (We're doing this last instead of earlier so it comes out on top for better
+# visibility.)
+curve(probs_from_pars(x, -1, 0.5, interc, par1, 0, 0)
+      , from = -2, to = 2
+      , add = TRUE
+      , col = colorsfam[1]
+      , lwd = 5)
 # Plotting Bayesian fit line
-if(showBayes) curve(probs_from_pars(x, -1, precis(posterior_bees)[1,1]
-                      , precis(posterior_bees)[2,1]
-                      , precis(posterior_bees)[3,1]
-                      , precis(posterior_bees)[4,1])
+if(showBayes) curve(probs_from_pars(x, -1, 0.5
+                                    , precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[5,1]
+                                    , precis(posterior_bees)[4,1])
                     , from = -2, to = 2
                     , add = TRUE
                     , lwd = 4
                     , col = "grey34"
                     , lty = 2
 )
-# Plotting the estimated fit from the glm:
-# (We're doing this last instead of earlier so it comes out on top for better
-# visibility.)
-curve(probs_from_pars(x, -1, interc, par1, 0, 0)
-      , from = -2, to = 2
-      , add = TRUE
-      , col = colorsfam[1]
-      , lwd = 5)
 # Text labels for panel
 # Converting parameters for labels:
 ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
-int <- round(probs_from_pars(0, -1, interc, par1, 0, 0), 2) # probability at x=0
+int <- round(probs_from_pars(0, -1, 0.5, interc, par1, 0, 0, 0), 2) # probability at x=0
 ose_sd <- round(exp(par1+summary(chooseRmod1)$coefficients[2,2]) - ose, 1)
-int_sd <- round(probs_from_pars(0, -1, interc+summary(chooseRmod1)$coefficients[1,2], par1, 0, 0) - int, 2)
+int_sd <- round(probs_from_pars(0, -1, 0.5, interc+summary(chooseRmod1)$coefficients[1,2], par1, 0, 0, 0) - int, 2)
 pvalue <- round(summary(chooseRmod1)$coefficients[2,4], 3)
 # Just for better understanding and data checking, we'll also label with the
 # sample size for the entire panel and the overall proportion of right choices.
 overall <- round(mean(d_graph$chose_R_numeric), 2)
 # Now label with overall and per-level sample sizes, and add model result. 
 samples <- length(d_graph$chose_R_numeric)
-text(x = -2, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[1], adj = 0)
-text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[1], adj = 0)
-text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[1], adj = 0)
 samples2 <- table(d_graph$RightConcentrationDiff)
+if(showDetail) {
+  text(x = -2, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[1], adj = 0)
+  text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[1], adj = 0)
+  text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[1], adj = 0)
+  if(showsim) text(x = -1, y = 0.8, labels = paste("Prop. ", overall), col = colorsfam[1])
+}
 text(x = -1.75, y =-0.1, labels = paste("n=", samples2[1]), col = colorsfam[1])
 text(x = -0.75, y =-0.1, labels = paste("n=", samples2[2]), col = colorsfam[1])
 text(x = 0.75, y =-0.1, labels = paste("n=", samples2[3]), col = colorsfam[1])
 text(x = 1.75, y =-0.1, labels = paste("n=", samples2[4]), col = colorsfam[1])
+mtext("1 visit right, 3 left", 3, 1)
 
 ### Panel 2: EQUAL FAMILIARITY - model and graph --------------------
 # We follow all the same steps as for Panel 1 (hence no annotations)
@@ -351,13 +450,13 @@ interc <- chooseRmod2$coefficients[[1]]
 par1 <- chooseRmod2$coefficients[[2]]
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseRmod2))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+  curve(probs_from_pars(x, 0, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0, 0)
         , from = -2, to = 2
         , add = TRUE
         , col = alpha(colorsfam[2], transparency_glm_uncertainty)
         , lwd = 3
   )
-  if(showBayes) curve(probs_from_pars(x, 0, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+  if(showBayes) curve(probs_from_pars(x, 0, 0.5, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
         , from = -2, to = 2
         , add = TRUE
         , lwd = 3
@@ -366,7 +465,7 @@ for(i in 1:n_uncertainty) {
   )
 }
 if(showsim) 
-  curve(probs_from_pars(x,  0, intercept, slope_value, slope_familiarity, slope_valxfam)
+  curve(probs_from_pars(x,  0, 0.5, intercept, slope_value, slope_familiarity, slope_valxfam)
         , from = -2, to = 2
         , add = TRUE
         , col = colorassumption
@@ -379,38 +478,43 @@ points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightConcentrationDiff, fa
        , col = alpha(colorsfam[2], 0.5)
        , cex = 2
 )
-if(showBayes) curve(probs_from_pars(x, 0, precis(posterior_bees)[1,1]
-                      , precis(posterior_bees)[2,1]
-                      , precis(posterior_bees)[3,1]
-                      , precis(posterior_bees)[4,1])
-      , from = -2, to = 2
-      , add = TRUE
-      , lwd = 4
-      , col = "grey34"
-      , lty = 2
-)
-curve(probs_from_pars(x, 0, interc, par1, 0, 0)
+curve(probs_from_pars(x, 0, 0.5, interc, par1, 0, 0, 0)
       , from = -2, to = 2
       , add = TRUE
       , col = colorsfam[2]
       , lwd = 5)
+if(showBayes) curve(probs_from_pars(x, 0, 0.5
+                                    , precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[5,1]
+                                    , precis(posterior_bees)[4,1])
+                    , from = -2, to = 2
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
 ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
-int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2) # probability at x=0
+int <- round(probs_from_pars(0, 0, 0.5, interc, par1, 0, 0, 0), 2) # probability at x=0
 ose_sd <- round(exp(par1+summary(chooseRmod2)$coefficients[2,2]) - ose, 1)
-int_sd <- round(probs_from_pars(0, 0, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0) - int, 2)
+int_sd <- round(probs_from_pars(0, 0, 0.5, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0, 0) - int, 2)
 pvalue <- round(summary(chooseRmod2)$coefficients[2,4], 3)
 overall <- round(mean(d_graph$chose_R_numeric), 2)
-if(showsim) text(x = -1, y = 0.8, labels = paste("Prop. ", overall), col = colorsfam[2])
 # Now label with overall and per-level sample sizes, and add model result. 
 samples <- length(d_graph$chose_R_numeric)
-text(x = -2, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[2], adj = 0)
-text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[2], adj = 0)
-text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[2], adj = 0)
 samples2 <- table(d_graph$RightConcentrationDiff)
+if(showDetail) {
+  text(x = -2, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[2], adj = 0)
+  text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[2], adj = 0)
+  text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[2], adj = 0)
+  if(showsim) text(x = -1, y = 0.8, labels = paste("Prop. ", overall), col = colorsfam[2])
+}
 text(x = -1.75, y =-0.1, labels = paste("n=", samples2[1]), col = colorsfam[2])
 text(x = -0.75, y =-0.1, labels = paste("n=", samples2[2]), col = colorsfam[2])
 text(x = 0.75, y =-0.1, labels = paste("n=", samples2[3]), col = colorsfam[2])
 text(x = 1.75, y =-0.1, labels = paste("n=", samples2[4]), col = colorsfam[2])
+mtext("2 visits right, 2 left", 3, 1)
 
 
 ### Panel 3: HIGH FAMILIARITY - model and graph ----------------------
@@ -431,13 +535,13 @@ interc <- chooseRmod3$coefficients[[1]]
 par1 <- chooseRmod3$coefficients[[2]]
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseRmod2))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+  curve(probs_from_pars(x, 1, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0, 0)
         , from = -2, to = 2
         , add = TRUE
         , col = alpha(colorsfam[3], transparency_glm_uncertainty)
         , lwd = 3
   )
-  if(showBayes) curve(probs_from_pars(x, 1, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i])
+  if(showBayes) curve(probs_from_pars(x, 1, 0.5, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
         , from = -2, to = 2
         , add = TRUE
         , lwd = 3
@@ -446,7 +550,7 @@ for(i in 1:n_uncertainty) {
   )
 }
 if(showsim) 
-  curve(probs_from_pars(x,  1, intercept, slope_value, slope_familiarity, slope_valxfam)
+  curve(probs_from_pars(x,  1, 0.5, intercept, slope_value, slope_familiarity, slope_valxfam, slope_color)
         , from = -2, to = 2
         , add = TRUE
         , col = colorassumption
@@ -459,50 +563,59 @@ points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightConcentrationDiff, fa
        , col = alpha(colorsfam[3], 0.5)
        , cex = 2
 )
-if(showBayes) curve(probs_from_pars(x, 1, precis(posterior_bees)[1,1]
-                      , precis(posterior_bees)[2,1]
-                      , precis(posterior_bees)[3,1]
-                      , precis(posterior_bees)[4,1])
-      , from = -2, to = 2
-      , add = TRUE
-      , lwd = 4
-      , col = "grey34"
-      , lty = 2
-)
-curve(probs_from_pars(x, 1, interc, par1, 0, 0)
+curve(probs_from_pars(x, 1, 0.5, interc, par1, 0, 0, 0)
       , from = -2, to = 2
       , add = TRUE
       , col = colorsfam[3]
       , lwd = 5)
+if(showBayes) curve(probs_from_pars(x, 1, 0.5
+                                    , precis(posterior_bees)[1,1]
+                                    , precis(posterior_bees)[2,1]
+                                    , precis(posterior_bees)[3,1]
+                                    , precis(posterior_bees)[5,1]
+                                    , precis(posterior_bees)[4,1])
+                    , from = -2, to = 2
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
 ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
-int <- round(probs_from_pars(0, 1, interc, par1, 0, 0), 2) # probability at x=0
+int <- round(probs_from_pars(0, 1, 0.5, interc, par1, 0, 0), 2) # probability at x=0
 ose_sd <- round(exp(par1+summary(chooseRmod2)$coefficients[2,2]) - ose, 1)
-int_sd <- round(probs_from_pars(0, 1, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0) - int, 2)
+int_sd <- round(probs_from_pars(0, 1, 0.5, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0) - int, 2)
 pvalue <- round(summary(chooseRmod2)$coefficients[2,4], 3)
 overall <- round(mean(d_graph$chose_R_numeric), 2)
-if(showsim) text(x = -1, y = 0.8, labels = paste("Prop. ", overall), col = colorsfam[2])
 # Now label with overall and per-level sample sizes, and add model result. 
 samples <- length(d_graph$chose_R_numeric)
-text(x = -2, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[3], adj = 0)
-text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[3], adj = 0)
-text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[3], adj = 0)
 samples2 <- table(d_graph$RightConcentrationDiff)
+if(showDetail) {
+  text(x = -2, y = 1.13, labels = paste("N = ", samples, sep = ""), col = colorsfam[3], adj = 0)
+  text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue, sep = ""), cex = 1, col = colorsfam[3], adj = 0)
+  text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd, sep = ""), cex = 1, col = colorsfam[3], adj = 0)
+  if(showsim) text(x = -1, y = 0.8, labels = paste("Prop. ", overall), col = colorsfam[3])
+}
 text(x = -1.75, y =-0.1, labels = paste("n=", samples2[1]), col = colorsfam[3])
 text(x = -0.75, y =-0.1, labels = paste("n=", samples2[2]), col = colorsfam[3])
 text(x = 0.75, y =-0.1, labels = paste("n=", samples2[3]), col = colorsfam[3])
 text(x = 1.75, y =-0.1, labels = paste("n=", samples2[4]), col = colorsfam[3])
+mtext("3 visit right, 1 left", 3, 1)
 
 ### Joint x axis label for all panels: ---------------
 mtext("Concentration Difference", 1, 2, outer = TRUE)
+if(saveFigs) {
+  dev.off()
+}
 ### end figure -------------------------
 
-
 #######################################################
-# MODELING EFFECT OF HORIZON TWO WAYS -----------------
+# MODELING EFFECT OF HORIZON TWO WAYS: on 'right' choices and on choosing 'unfamiliar' -----------------
+#######################################################
+# II. Modeling choice of flower on right with random and directed exploration ------------
 # Data simulation for workflow check and power analysis -----------------------
 # We use the parameters above, intercept, slope_value, slope_familiarity, and slope_valxfam
 # as 'default', i.e. with horizon = 1. 
-# If there is random exploration , then bees should be more likely to make random decisions
+# If there is random exploration, then bees should be more likely to make random decisions
 # with longer horizons. We model this as an interaction between reward and horizon,
 # since reward will matter less if there is more random exploration in longer horizons.
 rnd_expl_simpar <- 0.4
@@ -516,18 +629,12 @@ dir_expl_simpar <- 0.2
 # the factor - reward or familiarity. 
 
 # Horizon 1
-valuediffs <- runif(N_sim, min = -2, max = 2)
-famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
-bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
-choices_simdata <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercept, slope_value, slope_familiarity, slope_valxfam))
-simdata_h1 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 1)
+choices_simdata <- sim_choiceR(probs_from_pars(valuediffs,  famdiffs, colorprefs, intercept, slope_value, slope_familiarity, slope_valxfam))
+simdata_h1 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, ColorPref = colorprefs, Bee = bees, Horizon = 1)
 
 # Horizon 6
-valuediffs <- runif(N_sim, min = -2, max = 2)
-famdiffs <- sample(c(-1, 0, 1), N_sim, replace = TRUE)
-bees <- sample(c("onebee", "twobee"), N_sim, replace = TRUE)
-choices_simdata <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercept, slope_value+rnd_expl_simpar, slope_familiarity+dir_expl_simpar, slope_valxfam))
-simdata_h6 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, Bee = bees, Horizon = 6)
+choices_simdata <- sim_choiceR(probs_from_pars(valuediffs,  famdiffs, colorprefs, intercept, slope_value+rnd_expl_simpar, slope_familiarity+dir_expl_simpar, slope_valxfam))
+simdata_h6 <- data.frame(choice = choices_simdata, RightConcentrationDiff = valuediffs, famdiffs, ColorPref = colorprefs, Bee = bees, Horizon = 6)
 
 # Now joining the two datasets together
 simdata <- rbind(simdata_h1, simdata_h6)
@@ -562,6 +669,11 @@ simdata <- simdata %>%
                   , ifelse(RightFamiliarity == "Equal", NA
                            , RightConcentrationDiff)))
 
+# Choose data to use ---------------------------------
+ifelse(showsim
+       , dat <- simdata
+       , dat <- MazeData
+)
 # Bayesian analysis with quap ----------------------
 ## Priors -------------------
 # Priors involve the probability distributions of all the parameters, so typically
@@ -573,7 +685,7 @@ rnd_explor_prior_sd <- 2
 dir_explor_prior_mean <- 0
 dir_explor_prior_sd <- 2
 
-## Model assumption list ---------------
+## Model formula and assumption list ---------------
 ## The model is specified in the assumptions, and should match what we previously
 ## decided as the 'generative' model, i.e. the one used to make the simdata. 
 ## I am using the functions & format for the Bayesian model from Richard McElreath's
@@ -585,111 +697,71 @@ list_of_assumptions <- alist(
   # Note all the dbinom, dnorm functions describe the probability density functions.
   CL ~ dbinom(1, prob), 
   # This is the core model formula
-  logit(prob) <- a + (b+rnd*hor)*val + (c+dir*hor)*fam + d*val*fam, 
+  #RightConcentrationDiff:Horizon + famdiffs:Horizon
+  logit(prob) <- intpt + pcol*col + pval*val + pvxf*val*fam + rnd*hor*val + dir*hor*fam, 
   # And the following describes the priors for the parameters
-  a ~ dnorm(intercept_prior_mean, intercept_prior_SD), 
-  b ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
-  c ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
-  d ~ dnorm(slopevf_prior_mean, slopevf_prior_sd),
+  intpt ~ dnorm(intercept_prior_mean, intercept_prior_sd),
+  pval ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
+#  pfam ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
+  pcol ~ dnorm(slopecol_prior_mean, slopecol_prior_sd),
+  pvxf ~ dnorm(slopevf_prior_mean, slopevf_prior_sd),
   rnd ~ dnorm(rnd_explor_prior_mean, rnd_explor_prior_sd),
   dir ~ dnorm(dir_explor_prior_mean, dir_explor_prior_sd)
 )
-
-## Bayesian estimation function ------------------
-# We're going to use quap() for the actual estimation. 
 # We may or may not need 'start' to help the model converge on a solution. 
 # This is not a prior and should not affect the actual resulting estimates.
 start <- function(dat) {
   return(
     list(
-      a = intercept_prior_mean
-      , b = slopeval_prior_mean
-      , c = slopefam_prior_mean
-      , d = slopevf_prior_mean
+      intpt = intercept_prior_mean
+      , pval = slopeval_prior_mean
+#      , pfam = slopefam_prior_mean
+      , pcol = slopecol_prior_mean
+      , pvxf = slopevf_prior_mean
       , rnd = rnd_explor_prior_mean
       , dir = dir_explor_prior_mean
     )
   )
 }
+## Bayesian estimation function ------------------
+# We're going to use quap() for the actual estimation. 
 # CL stands for choice list, val is the value or reward difference between the options,
 # fam is the familiarity difference between the options. 
 # For horizon we want hor=0 for 'Horizon 1' and hor=1 for 'Horizon 6'.
-ExplorModel <- function(dat) {
+BayesExploreR <- function(dat) {
   quap(
     list_of_assumptions
-    , data = list(CL = dat$chose_R_numeric, val = dat$RightConcentrationDiff, fam = dat$famdiffs, hor = (as.numeric(dat$Horizon)-1))
+    , data = list(CL = dat$chose_R_numeric, val = dat$RightConcentrationDiff, fam = dat$famdiffs, col = dat$ColorPref, hor = (as.numeric(dat$Horizon)-1))
     , start = start(dat)
   )
 }
 
-# Choose data to use ---------------------------------
-ifelse(showsim
-       , dat <- simdata
-       , dat <- MazeData
-)
-# II. Degree of exploration -------
-## GLM for random exploration ------------------------------------
-rndExploration_mod <- glm(chose_R_numeric ~ RightConcentrationDiff * Horizon, family = binomial, data = dat)
-## Bayesian analysis -----------------------
-posterior_bees <- ExplorModel(dat)
-# Extracting values from Bayesian model for graphing
-samples_of_post <- extract.samples(posterior_bees, n=n_uncertainty)
-intercepts_post <- samples_of_post$a
-slopes_c <- samples_of_post$b
-slopes_f <- samples_of_post$c
-slopes_cf <- samples_of_post$d
-rnd_expl <- samples_of_post$rnd
-dir_expl <- samples_of_post$dir
 
+## Bayesian fitting -----------------------
+posterior_ExplR <- BayesExploreR(dat)
+# GLM choice right flower' with exploration ------------------------------------
+expl_R <- glm(chose_R_numeric ~ ColorPref + RightConcentrationDiff + RightConcentrationDiff:famdiffs + RightConcentrationDiff:Horizon + famdiffs:Horizon, family = binomial, data = dat)
 ## Table II. Random exploration GLM ---------------------
-tab_model(rndExploration_mod
+tab_model(expl_R
           , show.re.var = TRUE
-          , pred.labels = c("Intercept"
-                            , "Reward Difference (right - left)"
-                            , "Horizon"
-                            , "Interaction Rew Diff x Horizon"
+          , pred.labels = c("Right preference (Intercept)"
+                            , "Color Bias"
+                            , "Reward (Diff. right - left)"
+                            , "Learning (interaction Rew Diff x Familiarity)"
+                            , "Random exploration (interaction Rew Diff x Horizon)"
+                            , "Directed exploration (interaction Familiarity x Horizon)"
           )
           , dv.labels = "Effect on probability of choosing right flower"
 )
-# III. Directed exploration -------
+## Effect sizes figure Fig S4 -------------------------
+lab <- c("Directed exploration", "Random exploration", "Learning", "Reward", "Color Bias", "Right preference")
+model_comp(posterior_ExplR, expl_R, lab, 6)
+########################################################
+# III. Modeling choice of unfamiliar option directly ------------
 ## GLM for directed exploration -----------------------
-dirExpl_HI_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, family = binomial, data = dat)
-## Bayesian analysis -----------------------
-# Calculating prob to choose unfamiliar flower from post pred distribution ----------
-# The Bayesian model above really includes both random and directed exploration. But
-# to directly compare the parameters between that and this directed exploration test,
-# we need to convert the parameters such that we treat 'choosing the low familiarity option' 
-# as the response variable. 
-# We can simply make a posterior predictive distribution of essentially simulated 
-# points according to the posteriors for the parameters. 
-set_of_valuediffs <- c(-2, -1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2)
-valuediffs <- sample(set_of_valuediffs, n_ppp_per_set, replace = TRUE)
-famdiffs <- sample(c(-1, 1), n_ppp_per_set, replace = TRUE)
-horizons <- sample(c(0, 1), n_uncertainty, replace = TRUE)
-PPPoints <- data.frame(NULL)
-for(i in 1:n_uncertainty) {
-  choices <- sim_choice(probs_from_pars(valuediffs,  famdiffs, intercepts_post[i], slopes_c[i]+rnd_expl[i]*horizons[i], slopes_f[i]+dir_expl[i]*horizons[i], slopes_cf[i]))
-  set <- data.frame(choice = choices, RightConcentrationDiff = valuediffs, famdiffs, Horizon = horizons[i], Set = i)
-  PPPoints <- rbind(PPPoints, set)
-}
-flip_these <- subset(PPPoints, PPPoints$famdiffs > 0)
-flip_these$choice <- ifelse(flip_these$choice == "right", "left", "right")
-flip_these$famdiffs <- -1*flip_these$famdiffs
-flip_these$RightConcentrationDiff <- -1*flip_these$RightConcentrationDiff
-PPPoints <- rbind(subset(PPPoints, PPPoints$famdiffs < 0), flip_these)
-# Now, for all these points, the "right" choice is the low-familiarity
-# option.
-# Each 'set' here has the same parameter values drawn together from the posterior, 
-# but different specific value differences between options. Familiarity difference
-# is always -1.
-## Bayesian model II with prob of unfamiliar as response variable --------------
-# NOT DONE ---------------
-### Priors ---------------------------------
-### Model structure and assumptions --------------------
-### Bayesian estimation function -----------------------
-### Running the Bayesian analysis ----------------------
+expl_UF <- glm(HighInfoChoice ~ HighInfoConcentrationDiff * Horizon, family = binomial, data = dat)
 ## Table III. Directed exploration GLM --------------
-tab_model(dirExpl_HI_mod
+tab_model(expl_UF
           , show.re.var = TRUE
           , pred.labels = c("Intercept"
                             , "Reward Difference (unfamiliar - familiar)"
@@ -698,16 +770,78 @@ tab_model(dirExpl_HI_mod
           )
           , dv.labels = "Effect on probability of choosing less familiar flower"
 )
+## Bayesian model with prob of unfamiliar as response variable --------------
+### Priors ---------------------------------
+intercept_prior_mean <- 0.5
+intercept_prior_sd <- 0.3
+slopeval_prior_mean <- 1
+slopeval_prior_sd <- 0.5
+slopehor_prior_mean <- 0
+slopehor_prior_sd <- 2
+slopevh_prior_mean <- 0
+slopevh_prior_sd <- 2
 
-## Results Fig 2 - detailed version in base R with Bayesian and and GLM results -----------
+### Model structure and assumptions --------------------
+list_of_assumptions <- alist(
+  # Actual output is list of choices CL
+  # Everything is analogous to the first Bayesian model, except we are
+  # modeling the choice of the unfamiliar flower instead of the right side flower.
+  CL ~ dbinom(1, prob), 
+  # This is the core model formula
+  logit(prob) <- a + b*val + c*hor + d*val*hor, 
+  # And the following describes the priors for the parameters
+  a ~ dnorm(intercept_prior_mean, intercept_prior_sd), 
+  b ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
+  c ~ dnorm(slopehor_prior_mean, slopehor_prior_sd),
+  d ~ dnorm(slopevh_prior_mean, slopevh_prior_sd)
+)
+
+
+### Bayesian estimation function -----------------------
+start <- function(dat) {
+  return(
+    list(
+      a = intercept_prior_mean
+      , b = slopeval_prior_mean
+      , c = slopehor_prior_mean
+      , d = slopevh_prior_mean
+    )
+  )
+}
+# CL stands for choice list, val is the value or reward difference between the options,
+# fam is the familiarity difference between the options. 
+BayesExploreUnf <- function(dat) {
+  quap(
+    list_of_assumptions
+    , data = list(CL = dat$HighInfoChoice, val = dat$HighInfoConcentrationDiff, hor = (as.numeric(dat$Horizon)-1))
+    , start = start(dat)
+  )
+}
+### Running the Bayesian analysis ----------------------
+posterior_ExplUF <- BayesExploreUnf(subset(dat, !is.na(dat$HighInfoChoice)))
+## Effect sizes figure choosing unfamiliar flower -- Fig S4 to go with Fig. 4 -------------------------
+lab <- c("Interaction Val x Hor", "Horizon", "Value", "Intercept")
+model_comp(posterior_ExplUF, expl_UF, lab, 4)
+
+## Results Fig 4 - choice of unfamiliar flower w GLM & Bayes II -----------
 # 2-panel Base R Plot to illustrate binomial fit and uncertainty
+if(saveFigs) {
+  setwd(figs_path)
+  pdf(file = "Fig4 Maze chose unfamiliar.pdf", width = 10, height = 6)
+}
 # Layout
 par(mfrow=c(1,2))
-par(oma = c(4,4,0,0), mar = c(1,1,1,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
-# Each panel doing its own modeling separately
+par(oma = c(4,4,0,0), mar = c(1,1,3,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
+# Each panel doing its own modeling separately for glm
+# Extracting values from Bayesian model for graphing
+samples_of_post <- extract.samples(posterior_ExplUF, n=n_uncertainty)
+intercepts_post <- samples_of_post$a
+slopes_val <- samples_of_post$b
+slopes_hor <- samples_of_post$c
+slopes_valhor <- samples_of_post$d
+
 ### Horizon 1 - model and graph ----------------
 d_graph <- subset(dat, dat$Horizon == 1)
-PPPoints_panel1 <- subset(PPPoints, PPPoints$Horizon == 0)
 # Plot frame
 plot(NULL
      , ylab = ""
@@ -717,54 +851,37 @@ plot(NULL
      , xlim = c(-2, 2)
 )
 axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are
-# Bottom axis label for all panels
+mtext("Horizon 1", 3, 1)
+# Y axis label for all panels
 mtext("Chose Low Familiarity Option", 2, 3)
 # Gridlines
 abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
 abline(v = 0, col = "grey", lty = 2, lwd = 1)
 # GLM - model and extracting estimates
-H1_Expl_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff, family = binomial, data = dat)
+H1_Expl_mod <- glm(HighInfoChoice ~ HighInfoConcentrationDiff, family = binomial, data = d_graph)
 interc <- H1_Expl_mod$coefficients[[1]]
 par1 <- H1_Expl_mod$coefficients[[2]]
 ose <- round(exp(par1),1)
 ose_sd <- round(exp(par1+summary(H1_Expl_mod)$coefficients[2,2]) - ose, 1)
 pvalue <- round(summary(H1_Expl_mod)$coefficients[2,4], 3)
-int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2)
-int_sd <- round(probs_from_pars(0, 0, interc+summary(H1_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
+int <- round(probs_from_pars(0, 0, 0.5, interc, par1, 0, 0), 2)
+int_sd <- round(probs_from_pars(0, 0, 0.5, interc+summary(H1_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Extracting uncertainty
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H1_Expl_mod))
-PPD_prob <- array(NaN, c(length(set_of_valuediffs), n_uncertainty))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
+  curve(probs_from_pars(x, 0, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
         , col = alpha(colorshor[1], transparency_glm_uncertainty)
         , lwd = 3
   )
-  # Plotting Bayesian PPD
-  if(showBayes) {
-    # We want to plot a probability, not an actual choice point. 
-    # This will get us the Bayesian fit line.
-    for(j in 1:length(set_of_valuediffs)) {
-      PPPs <- subset(PPPoints_panel1, PPPoints_panel1$Set==i & PPPoints_panel1$RightConcentrationDiff==set_of_valuediffs[j])
-      PPD_prob[j, i] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
-    }
-    if(length(PPD_prob[,i]) == length(set_of_valuediffs))
-    lines(PPD_prob[,i] ~ set_of_valuediffs
-           , col = alpha("grey34", transparency_Bay_uncertainty)
-          , lwd = 3
-          , lty = 2
-    )
-  }
+  if(showBayes) curve(probs_from_pars(x, 0, 0.5, intercepts_post[i], slopes_val[i], slopes_hor[i], slopes_valhor[i])
+                      , from = -2, to = 2
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
+  )
 }
-
-# Plotting average of the Bayesian posterior predicted fits
-if(length(rowMeans(PPD_prob, na.rm = TRUE)) == length(set_of_valuediffs))
-  lines(rowMeans(PPD_prob, na.rm = TRUE) ~ set_of_valuediffs
-      , col = "grey34"
-      , lwd = 3
-      , lty = 2
-)
-
 # Original data points with slight jitter
 points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
        , data = d_graph
@@ -772,20 +889,32 @@ points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, 
        , col = alpha(colorshor[1], 0.5)
        , cex = 1.5
 )
-
 # Plotting the estimated fit from the glm:
 # (We're doing this last instead of earlier so it comes out on top for better
 # visibility.)
-curve(probs_from_pars(x, 0, interc, par1, 0, 0), from = -2, to = 2
+curve(probs_from_pars(x, 0, 0.5, interc, par1, 0, 0), from = -2, to = 2
       , add = TRUE
       , col = colorshor[1]
       , lwd = 5)
+# Plotting Bayesian fit line
+if(showBayes) curve(probs_from_pars(x, 0, 0.5, precis(posterior_ExplUF)[1,1]
+                                    , precis(posterior_ExplUF)[2,1]
+                                    , precis(posterior_ExplUF)[3,1]
+                                    , precis(posterior_ExplUF)[4,1])
+                    , from = -2, to = 2
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
 # Text labels for panel
 overall <- round(mean(d_graph$HighInfoChoice), 2)
 samples <- length(d_graph$HighInfoChoice)
-text(x = -2, y = 1.13, labels = paste("N = ", samples), col = colorshor[1], cex = 0.7, adj = 0)
-text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue), cex = 0.7, col = colorshor[1], adj = 0)
-text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd), cex = 0.7, col = colorshor[1], adj = 0)
+if(showDetail) {
+  text(x = -2, y = 1.13, labels = paste("N = ", samples), col = colorshor[1], cex = 0.7, adj = 0)
+  text(x = -2, y = 1.10, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue), cex = 0.7, col = colorshor[1], adj = 0)
+  text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd), cex = 0.7, col = colorshor[1], adj = 0)
+}
 samples2 <- table(d_graph$HighInfoConcentrationDiff)
 text(x = -1.75, y =-0.1, labels = paste("n=", samples2[1]), col = colorshor[1])
 text(x = -0.75, y =-0.1, labels = paste("n=", samples2[2]), col = colorshor[1])
@@ -794,7 +923,6 @@ text(x = 1.75, y =-0.1, labels = paste("n=", samples2[4]), col = colorshor[1])
 
 ### Horizon 6 - model and graph ----------------------
 d_graph <- subset(dat, dat$Horizon == 6)
-PPPoints_panel2 <- subset(PPPoints, PPPoints$Horizon == 1)
 plot(NULL
      , ylab = ""
      , ylim = c(-0.1, 1.1)
@@ -804,6 +932,7 @@ plot(NULL
      , xlim = c(-2, 2)
 )
 axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are
+mtext("Horizon 6", 3, 1)
 abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
 abline(v = 0, col = "grey", lty = 2, lwd = 1)
 # GLM - model and extracting estimates
@@ -813,40 +942,24 @@ par1 <- H6_Expl_mod$coefficients[[2]]
 ose <- round(exp(par1),1)
 ose_sd <- round(exp(par1+summary(H6_Expl_mod)$coefficients[2,2]) - ose, 1)
 pvalue <- round(summary(H6_Expl_mod)$coefficients[2,4], 3)
-int <- round(probs_from_pars(0, 0, interc, par1, 0, 0), 2)
-int_sd <- round(probs_from_pars(0, 0, interc+summary(H6_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
+int <- round(probs_from_pars(0, 0, 0.5, interc, par1, 0, 0), 2)
+int_sd <- round(probs_from_pars(0, 0, 0.5, interc+summary(H6_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Bayesian model and extracting estimates
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H6_Expl_mod))
-PPD_prob <- array(NaN, c(length(set_of_valuediffs), n_uncertainty))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, -1, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
+  curve(probs_from_pars(x, -1, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2
         , add = TRUE
         , col = alpha(colorshor[2], transparency_glm_uncertainty)
         , lwd = 3
   )
-  # Plotting Bayesian PPD
-  if(showBayes) {
-    # We want to plot a probability, not an actual choice point. 
-    # This will get us the Bayesian fit line.
-    for(j in 1:length(set_of_valuediffs)) {
-      PPPs <- subset(PPPoints_panel2, PPPoints_panel2$Set==i & PPPoints_panel2$RightConcentrationDiff==set_of_valuediffs[j])
-      PPD_prob[j,i] <- length(subset(PPPs$choice, PPPs$choice=="right"))/length(PPPs$choice)
-    }
-    if(length(PPD_prob[,i]) == length(set_of_valuediffs))
-    lines(PPD_prob[,i] ~ set_of_valuediffs
-          , col = alpha("grey34", transparency_Bay_uncertainty)
-          , lwd = 3
-          , lty = 2
-    )
-  }
-}
-# Plotting average of the Bayesian posterior predicted fits
-if(length(rowMeans(PPD_prob, na.rm = TRUE)) == length(set_of_valuediffs))
-  lines(rowMeans(PPD_prob, na.rm = TRUE) ~ set_of_valuediffs
-        , col = "grey34"
-        , lwd = 3
-        , lty = 2
+  if(showBayes) curve(probs_from_pars(x, 1, 0.5, intercepts_post[i], slopes_val[i], slopes_hor[i], slopes_valhor[i])
+                      , from = -2, to = 2
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha("grey34", transparency_Bay_uncertainty)
+                      , lty = 2
   )
+}
 # Original data points with slight jitter
 points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, factor = 1)
        , data = d_graph
@@ -854,23 +967,35 @@ points(jitter(HighInfoChoice, factor = 0.2) ~ jitter(HighInfoConcentrationDiff, 
        , col = alpha(colorshor[2], 0.5)
        , cex = 1.5
 )
-curve(probs_from_pars(x, 0, interc, par1, 0, 0), from = -2, to = 2
+curve(probs_from_pars(x, 0, 0.5, interc, par1, 0, 0), from = -2, to = 2
       , add = TRUE
       , col = colorshor[2]
       , lwd = 5)
+# Plotting Bayesian fit line
+if(showBayes) curve(probs_from_pars(x, 1, 0.5, precis(posterior_ExplUF)[1,1]
+                                    , precis(posterior_ExplUF)[2,1]
+                                    , precis(posterior_ExplUF)[3,1]
+                                    , precis(posterior_ExplUF)[4,1])
+                    , from = -2, to = 2
+                    , add = TRUE
+                    , lwd = 4
+                    , col = "grey34"
+                    , lty = 2
+)
 overall <- round(mean(d_graph$HighInfoChoice), 2)
 samples <- length(d_graph$HighInfoChoice)
-text(x = -2, y = 1.13, labels = paste("N = ", samples), col = colorshor[2], cex = 0.7, adj = 0)
-text(x = -2, y = 1.1, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue), cex = 0.7, col = colorshor[2], adj = 0)
-text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd), cex = 0.7, col = colorshor[2], adj = 0)
+if(showDetail) {
+  text(x = -2, y = 1.13, labels = paste("N = ", samples), col = colorshor[2], cex = 0.7, adj = 0)
+  text(x = -2, y = 1.1, labels = paste("Odds slope (glm): ", ose, " +/- ", ose_sd, ", p=", pvalue), cex = 0.7, col = colorshor[2], adj = 0)
+  text(x = -2, y = 1.07, labels = paste("Right pref (glm): ", int, " +/- ", int_sd), cex = 0.7, col = colorshor[2], adj = 0)
+}
 samples2 <- table(d_graph$HighInfoConcentrationDiff)
 text(x = -1.75, y =-0.1, labels = paste("n=", samples2[1]), col = colorshor[2])
 text(x = -0.75, y =-0.1, labels = paste("n=", samples2[2]), col = colorshor[2])
 text(x = 0.75, y =-0.1, labels = paste("n=", samples2[3]), col = colorshor[2])
 text(x = 1.75, y =-0.1, labels = paste("n=", samples2[4]), col = colorshor[2])
-
-mtext("Concentration Difference", 1, 2, outer = TRUE)
-
+### Axis label -------------
+mtext("Concentration Difference (unfamiliar - familiar)", 1, 2, outer = TRUE)
+if(saveFigs) {dev.off()}
 ### end fig --------------------------------------
-#######################################################
 
