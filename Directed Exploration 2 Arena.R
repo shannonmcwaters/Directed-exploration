@@ -147,8 +147,8 @@ ArenaDataLong <- ArenaDataLong %>%
     # the bee is making the current choice.
     Visits_A = dplyr::lag(cumsum((FlowerType == "A") * CountedVisit)),
     Visits_B = dplyr::lag(cumsum((FlowerType == "B") * CountedVisit)),
-    RewardSum_A = dplyr::lag(cumsum(ifelse(is.na((RewardRepeat * (FlowerType == "A") * CountedVisit)), 0, (RewardRepeat * (FlowerType == "A") * CountedVisit)))),
-    RewardSum_B = dplyr::lag(cumsum(ifelse(is.na((RewardRepeat * (FlowerType == "B") * CountedVisit)), 0, (RewardRepeat * (FlowerType == "A") * CountedVisit)))),
+    RewardSum_A = dplyr::lag(cumsum(RewardRepeat * (FlowerType == "A") * CountedVisit)),
+    RewardSum_B = dplyr::lag(cumsum(RewardRepeat * (FlowerType == "B") * CountedVisit)),
     RewAvg_A = RewardSum_A/Visits_A,
     RewAvg_B = RewardSum_B/Visits_B,
     TypeChoice = ifelse(CountedVisit, FlowerType, NA),
@@ -562,9 +562,9 @@ plot(NULL
      , ylim = c(-0.1, 1.1)
      , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
      , xaxt = 'n'
-     , xlim = c(-1, 1)
+     , xlim = c(-2, 2)
 )
-axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+axis(1, at = c(-1.75, -0.75, 0, 0.75, 1.75)) # Define where x-axis tick marks are
 mtext("Horizon 2", 3, 1)
 # Y axis label for all panels
 mtext("Chose Low Familiarity Option", 2, 3)
@@ -630,9 +630,9 @@ plot(NULL
      , yaxp = c(0, 1, 4) # Define where y-axis tick marks are
      , yaxt = 'n'
      , xaxt = 'n'
-     , xlim = c(-1, 1)
+     , xlim = c(-2, 2)
 )
-axis(1, at = c(-1, -0.5, 0, 0.5, 1)) # Define where x-axis tick marks are
+axis(1, at = c(-1.75, -0.75, 0, 0.75, 1.75)) # Define where x-axis tick marks are
 mtext("Horizon 16", 3, 1)
 abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
 abline(v = 0, col = "grey", lty = 2, lwd = 1)
