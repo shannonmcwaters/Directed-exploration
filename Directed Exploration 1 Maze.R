@@ -4,7 +4,8 @@
 # Data analysis & graphs - part 1: MAZE
 # SET THESE OPTIONS BEFORE RUNNING SCRIPT -----------------
 showsim <- FALSE
-showBayes <- FALSE
+showBayes <- TRUE
+showGLM <- FALSE
 showDetail <- FALSE
 saveFigs <- FALSE
 figs_path <- paste(getwd(), "/Figures", sep = "")
@@ -24,8 +25,8 @@ MazeData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-
 colorsfam <- viridis(3, begin = 0.2, end = 0.8)
 colorshor <- inferno(2, begin = 0.2, end = 0.8)
 colorsparameters <- inferno(4, alpha = 0.8, begin = 0.2, end = 0.8)
-transparency_glm_uncertainty <- 0.05 #0.01 #0.1
-transparency_Bay_uncertainty <- 0.15 #0.018 #0.15
+transparency_glm_uncertainty <- 0.15 #0.01 #0.1
+transparency_Bay_uncertainty <- 0.05 #0.018 #0.15
 colorassumption <- "darkred"
 colorprior <- "slateblue"
 # This is how many lines we plot when illustrating uncertainty around fits:
@@ -93,7 +94,12 @@ levels(MazeData$ColorNotChosen) <- c("Red", "Light Blue", "Green", "Orange", "Da
 colpref <- table(MazeData$ColorChosen) / (table(MazeData$ColorChosen) + table(MazeData$ColorNotChosen))
 MazeData$ColorPref <- as.vector(colpref[MazeData$ColorChosen])
 MazeData$ColorPref[is.na(MazeData$ColorPref)] <- 0.5
+#######################################################
 ## Figure showing color preferences ----------------------------
+if(saveFigs) {
+  setwd(figs_path)
+  pdf(file = "FigS1 Maze color prefs.pdf", width = 10, height = 6)
+}
 par(mfrow=c(1,1), mar=c(4,4,0,0), oma=c(0,0,0,0))
 colorlist_colors <- c("red3", "deepskyblue", "green4", "orange", "blue3","white","green1", "black")
 spacing <- c(0.1, 0, 0.1, 0, 0.1, 0, 0.1, 0)
@@ -107,6 +113,7 @@ Nice_plot <- barplot(colpref
         )
 textpos <- cumsum(spacing)
 text((1:8)+textpos-0.5, 0.1, paste("n=",table(MazeData$ColorChosen), sep=""), col = c("black","black","black","black","black","black","black","white"))
+if(saveFigs) dev.off()
 #######################################################
 # MODELING PROBABILITY OF CHOOSING FLOWER ON RIGHT AS REWARD x FAMILIARITY ------
 # First, we define some helper functions --------------------------
@@ -229,7 +236,7 @@ slopevf_prior_sd <- 2
 slopecol_prior_mean <- 0.5
 slopecol_prior_sd <- 0.1
 
-## BAYESIAN MODEL FORMUAL and assumption list ---------------
+## BAYESIAN MODEL FORMUA and assumption list ---------------
 ## The model is specified in the assumptions, and should match what we previously
 ## decided as the 'generative' model, i.e. the one used to make the simdata. 
 ## I am using the functions & format for the Bayesian model from Richard McElreath's
@@ -294,11 +301,16 @@ tab_model(chooseR
           , dv.labels = "Effect on probability of choosing right flower"
 )
 #######################################################
-## Effect sizes figure - Fig S2 to go with Fig. 3 -------------------------
+## Effect sizes figure -------------------------
+if(saveFigs) {
+  setwd(figs_path)
+  pdf(file = "FigS3 Maze effect sizes val x fam.pdf", width = 10, height = 6)
+}
 lab <- c("Interaction Val x Fam", "Color", "Familiarity", "Value", "Intercept")
 model_comp(posterior_bees, chooseR, lab, 5)
-
-## Results Fig 3 - detailed version in base R with Bayesian and and GLM results -----------
+if(saveFigs) dev.off()
+#######################################################
+## Results Fig: chose R ~ reward by fam -----------
 # Extracting values from Bayesian model for graphing
 samples_of_post <- extract.samples(posterior_bees, n=n_uncertainty)
 intercepts_post <- samples_of_post$intpt
@@ -310,7 +322,7 @@ slopes_col <- samples_of_post$pcol
 # 3-panel Base R Plot to illustrate binomial fit and uncertainty
 if(saveFigs) {
   setwd(figs_path)
-  pdf(file = "Fig3 Maze chose right.pdf", width = 10, height = 6)
+  pdf(file = "Fig2 Maze chose right.pdf", width = 10, height = 6)
 }
 # Layout
 par(mfrow=c(1,3))
@@ -329,8 +341,6 @@ plot(NULL
 axis(1, at = c(0.25, 0.75, 1.5, 2)) # Define where x-axis tick marks are
 # Y axis label for all panels
 mtext("Chose Right", 2, 3)
-# Two gridlines to show random choice and equal reward
-abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
 # The binomial glm estimates a parameter that is the multiplied with x to give the odds, 
 # odds: the probability / (1-probability)
 # Sine we are using only data with a single familiarity value, we do not model
@@ -352,31 +362,32 @@ par1 <- chooseRmod1$coefficients[[2]]
 # with mvrnorm().
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseRmod1))
 for(i in 1:n_uncertainty) {
-  # 'n_uncertainty' (100 or so) lines normally distributed to illustrate the range of
-  # plausible fits from GLM. The GLM fit lines are colored, slightly transparent lines. 
-  curve(probs_from_pars(x, -1, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
-        , from = -2, to = 2.5
-        , add = TRUE
-        , col = alpha(colorsfam[1], transparency_glm_uncertainty)
-        , lwd = 3
-  )
   # 'n_uncertainty' (100 or so) lines from the posterior distribution from the 
   # Bayesian model fit. The information from these is slightly different than from the 
   # GLM but the gist is the same: illustrating a distribution of possible 'correct'
   # fits, with a tapering (decreasing) likelihood the further away from the mean
   # or overall fit line they are. 
   # The Bayesian fit lines are grey stripes.
-  if(showBayes) curve(probs_from_pars(x, -1, 0.5, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
+  if(showBayes) curve(probs_from_pars(x, -1, 0, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
         , from = -2, to = 2.5
         , add = TRUE
         , lwd = 3
-        , col = alpha("grey34", transparency_Bay_uncertainty)
-        , lty = 2
+        , col = alpha(colorsfam[1], transparency_Bay_uncertainty)
+        , lty = 1
+  )
+  # 'n_uncertainty' (100 or so) lines normally distributed to illustrate the range of
+  # plausible fits from GLM. The GLM fit lines are colored, slightly transparent lines. 
+  if(showGLM) curve(probs_from_pars(x, -1, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0)
+                    , from = -2, to = 2.5
+                    , add = TRUE
+                    , col = alpha("grey34", transparency_glm_uncertainty)
+                    , lwd = 3
+                    , lty = 2
   )
 }
 # 'True' relationship if using simdata
 if(showsim) 
-  curve(probs_from_pars(x,  -1, 0.5, intercept, slope_value, slope_familiarity, slope_valxfam, slope_color)
+  curve(probs_from_pars(x,  -1, 0, intercept, slope_value, slope_familiarity, slope_valxfam, slope_color)
         , from = -2, to = 2.5
         , add = TRUE
         , col = colorassumption
@@ -393,13 +404,14 @@ points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightValue, factor = 1)
 # Plotting the estimated fit from the glm:
 # (We're doing this last instead of earlier so it comes out on top for better
 # visibility.)
-curve(probs_from_pars(x, -1, 0.5, interc, par1, 0, 0)
+if(showGLM) curve(probs_from_pars(x, -1, 0, interc, par1, 0, 0)
       , from = -2, to = 2.5
       , add = TRUE
-      , col = colorsfam[1]
-      , lwd = 5)
+      , col = "grey34" 
+      , lwd = 5
+      , lty = 2)
 # Plotting Bayesian fit line
-if(showBayes) curve(probs_from_pars(x, -1, 0.5
+if(showBayes) curve(probs_from_pars(x, -1, 0
                                     , precis(posterior_bees)[1,1]
                                     , precis(posterior_bees)[2,1]
                                     , precis(posterior_bees)[3,1]
@@ -408,15 +420,17 @@ if(showBayes) curve(probs_from_pars(x, -1, 0.5
                     , from = -2, to = 2.5
                     , add = TRUE
                     , lwd = 4
-                    , col = "grey34"
-                    , lty = 2
+                    , col = colorsfam[1]
+                    , lty = 1
 )
+# Gridline to show random choice
+abline(h = 0.5, col = "grey", lty = 2, lwd = 2)
 # Text labels for panel
 # Converting parameters for labels:
 ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
-int <- round(probs_from_pars(0, -1, 0.5, interc, par1, 0, 0, 0), 2) # probability at x=0
+int <- round(probs_from_pars(0, -1, 0, interc, par1, 0, 0, 0), 2) # probability at x=0
 ose_sd <- round(exp(par1+summary(chooseRmod1)$coefficients[2,2]) - ose, 1)
-int_sd <- round(probs_from_pars(0, -1, 0.5, interc+summary(chooseRmod1)$coefficients[1,2], par1, 0, 0, 0) - int, 2)
+int_sd <- round(probs_from_pars(0, -1, 0, interc+summary(chooseRmod1)$coefficients[1,2], par1, 0, 0, 0) - int, 2)
 pvalue <- round(summary(chooseRmod1)$coefficients[2,4], 3)
 # Just for better understanding and data checking, we'll also label with the
 # sample size for the entire panel and the overall proportion of right choices.
@@ -448,29 +462,28 @@ plot(NULL
      , xlim = c(0, 2.25)
 )
 axis(1, at = c(0.25, 0.75, 1.5, 2)) # Define where x-axis tick marks are
-abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
-abline(v = 0, col = "grey", lty = 2, lwd = 1)
 chooseRmod2 <- glm(chose_R_numeric ~ RightValue, family = binomial, data = d_graph)
 interc <- chooseRmod2$coefficients[[1]]
 par1 <- chooseRmod2$coefficients[[2]]
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseRmod2))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 0, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0, 0)
-        , from = -2, to = 2.5
-        , add = TRUE
-        , col = alpha(colorsfam[2], transparency_glm_uncertainty)
-        , lwd = 3
+  if(showBayes) curve(probs_from_pars(x, 0, 0, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
+                      , from = -2, to = 2.5
+                      , add = TRUE
+                      , lwd = 3
+                      , col = alpha(colorsfam[2], transparency_Bay_uncertainty)
+                      , lty = 1
   )
-  if(showBayes) curve(probs_from_pars(x, 0, 0.5, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
+  if(showGLM) curve(probs_from_pars(x, 0, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0, 0)
         , from = -2, to = 2.5
         , add = TRUE
+        , col = alpha("grey34", transparency_glm_uncertainty)
         , lwd = 3
-        , col = alpha("grey34", transparency_Bay_uncertainty)
         , lty = 2
   )
 }
 if(showsim) 
-  curve(probs_from_pars(x,  0, 0.5, intercept, slope_value, slope_familiarity, slope_valxfam)
+  curve(probs_from_pars(x,  0, 0, intercept, slope_value, slope_familiarity, slope_valxfam)
         , from = -2, to = 2.5
         , add = TRUE
         , col = colorassumption
@@ -483,12 +496,13 @@ points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightValue, factor = 1)
        , col = alpha(colorsfam[2], 0.5)
        , cex = 2
 )
-curve(probs_from_pars(x, 0, 0.5, interc, par1, 0, 0, 0)
+if(showGLM) curve(probs_from_pars(x, 0, 0, interc, par1, 0, 0, 0)
       , from = -2, to = 2.5
       , add = TRUE
-      , col = colorsfam[2]
-      , lwd = 5)
-if(showBayes) curve(probs_from_pars(x, 0, 0.5
+      , col = "grey34"
+      , lwd = 5
+      , lty = 2)
+if(showBayes) curve(probs_from_pars(x, 0, 0
                                     , precis(posterior_bees)[1,1]
                                     , precis(posterior_bees)[2,1]
                                     , precis(posterior_bees)[3,1]
@@ -497,13 +511,16 @@ if(showBayes) curve(probs_from_pars(x, 0, 0.5
                     , from = -2, to = 2.5
                     , add = TRUE
                     , lwd = 4
-                    , col = "grey34"
-                    , lty = 2
+                    , col = colorsfam[2]
+                    , lty = 1
 )
+# Gridline to show random choice
+abline(h = 0.5, col = "grey", lty = 2, lwd = 2)
+# Text labels
 ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
-int <- round(probs_from_pars(0, 0, 0.5, interc, par1, 0, 0, 0), 2) # probability at x=0
+int <- round(probs_from_pars(0, 0, 0, interc, par1, 0, 0, 0), 2) # probability at x=0
 ose_sd <- round(exp(par1+summary(chooseRmod2)$coefficients[2,2]) - ose, 1)
-int_sd <- round(probs_from_pars(0, 0, 0.5, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0, 0) - int, 2)
+int_sd <- round(probs_from_pars(0, 0, 0, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0, 0) - int, 2)
 pvalue <- round(summary(chooseRmod2)$coefficients[2,4], 3)
 overall <- round(mean(d_graph$chose_R_numeric), 2)
 # Now label with overall and per-level sample sizes, and add model result. 
@@ -540,22 +557,23 @@ interc <- chooseRmod3$coefficients[[1]]
 par1 <- chooseRmod3$coefficients[[2]]
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(chooseRmod2))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 1, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0, 0)
+  if(showBayes) curve(probs_from_pars(x, 1, 0, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
         , from = -2, to = 2.5
         , add = TRUE
-        , col = alpha(colorsfam[3], transparency_glm_uncertainty)
         , lwd = 3
+        , col = alpha(colorsfam[3], transparency_Bay_uncertainty)
+        , lty = 1
   )
-  if(showBayes) curve(probs_from_pars(x, 1, 0.5, intercepts_post[i], slopes_c[i], slopes_f[i], slopes_cf[i], slopes_col[i])
-        , from = -2, to = 2.5
-        , add = TRUE
-        , lwd = 3
-        , col = alpha("grey34", transparency_Bay_uncertainty)
-        , lty = 2
+  if(showGLM) curve(probs_from_pars(x, 1, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0, 0)
+                    , from = -2, to = 2.5
+                    , add = TRUE
+                    , col = alpha("grey34", transparency_glm_uncertainty)
+                    , lwd = 3
+                    , lty = 2
   )
 }
 if(showsim) 
-  curve(probs_from_pars(x,  1, 0.5, intercept, slope_value, slope_familiarity, slope_valxfam, slope_color)
+  curve(probs_from_pars(x,  1, 0, intercept, slope_value, slope_familiarity, slope_valxfam, slope_color)
         , from = -2, to = 2.5
         , add = TRUE
         , col = colorassumption
@@ -568,12 +586,13 @@ points(jitter(chose_R_numeric, factor = 0.2) ~ jitter(RightValue, factor = 1)
        , col = alpha(colorsfam[3], 0.5)
        , cex = 2
 )
-curve(probs_from_pars(x, 1, 0.5, interc, par1, 0, 0, 0)
+if(showGLM) curve(probs_from_pars(x, 1, 0, interc, par1, 0, 0, 0)
       , from = -2, to = 2.5
       , add = TRUE
-      , col = colorsfam[3]
-      , lwd = 5)
-if(showBayes) curve(probs_from_pars(x, 1, 0.5
+      , col = "grey34"
+      , lwd = 5
+      , lty = 2)
+if(showBayes) curve(probs_from_pars(x, 1, 0
                                     , precis(posterior_bees)[1,1]
                                     , precis(posterior_bees)[2,1]
                                     , precis(posterior_bees)[3,1]
@@ -582,13 +601,16 @@ if(showBayes) curve(probs_from_pars(x, 1, 0.5
                     , from = -2, to = 2.5
                     , add = TRUE
                     , lwd = 4
-                    , col = "grey34"
-                    , lty = 2
+                    , col = colorsfam[3]
+                    , lty = 1
 )
+# Gridline to show random choice
+abline(h = 0.5, col = "grey", lty = 2, lwd = 2)
+# Text labels
 ose <- round(exp(par1),1) # 'odds slope', how much the odds change with a change in x
-int <- round(probs_from_pars(0, 1, 0.5, interc, par1, 0, 0), 2) # probability at x=0
+int <- round(probs_from_pars(0, 1, 0, interc, par1, 0, 0), 2) # probability at x=0
 ose_sd <- round(exp(par1+summary(chooseRmod2)$coefficients[2,2]) - ose, 1)
-int_sd <- round(probs_from_pars(0, 1, 0.5, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0) - int, 2)
+int_sd <- round(probs_from_pars(0, 1, 0, interc+summary(chooseRmod2)$coefficients[1,2], par1, 0, 0) - int, 2)
 pvalue <- round(summary(chooseRmod2)$coefficients[2,4], 3)
 overall <- round(mean(d_graph$chose_R_numeric), 2)
 # Now label with overall and per-level sample sizes, and add model result. 
@@ -703,11 +725,11 @@ list_of_assumptions <- alist(
   CL ~ dbinom(1, prob), 
   # This is the core model formula
   #Right_ConcDiff:Horizon + Right_FamDiff:Horizon
-  logit(prob) <- intpt + pcol*col + pval*val + pvxf*val*fam + rnd*hor*val + dir*hor*fam, 
+  logit(prob) <- intpt + pcol*col + pval*val + pfam * fam + pvxf*val*fam + rnd*hor*val + dir*hor*fam, 
   # And the following describes the priors for the parameters
   intpt ~ dnorm(intercept_prior_mean, intercept_prior_sd),
   pval ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
-#  pfam ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
+  pfam ~ dnorm(slopefam_prior_mean, slopefam_prior_sd),
   pcol ~ dnorm(slopecol_prior_mean, slopecol_prior_sd),
   pvxf ~ dnorm(slopevf_prior_mean, slopevf_prior_sd),
   rnd ~ dnorm(rnd_explor_prior_mean, rnd_explor_prior_sd),
@@ -715,13 +737,15 @@ list_of_assumptions <- alist(
 )
 # We may or may not need 'start' to help the model converge on a solution. 
 # This is not a prior and should not affect the actual resulting estimates.
+# However, note that the order in which parameters are mentioned here determines
+# the order in the output.
 start <- function(dat) {
   return(
     list(
       intpt = intercept_prior_mean
-      , pval = slopeval_prior_mean
-#      , pfam = slopefam_prior_mean
       , pcol = slopecol_prior_mean
+      , pval = slopeval_prior_mean
+      , pfam = slopefam_prior_mean
       , pvxf = slopevf_prior_mean
       , rnd = rnd_explor_prior_mean
       , dir = dir_explor_prior_mean
@@ -745,23 +769,30 @@ BayesExploreR <- function(dat) {
 ## Bayesian fitting -----------------------
 posterior_ExplR <- BayesExploreR(dat)
 # GLM choice right flower' with exploration ------------------------------------
-expl_R <- glm(chose_R_numeric ~ ColorPref + RightValue + RightValue:Right_FamDiff + RightValue:Horizon + Right_FamDiff:Horizon, family = binomial, data = dat)
+expl_R <- glm(chose_R_numeric ~ ColorPref + RightValue*Right_FamDiff + RightValue:Horizon + Right_FamDiff:Horizon, family = binomial, data = dat)
 ## Table II. Random exploration GLM ---------------------
 tab_model(expl_R
           , show.re.var = TRUE
           , pred.labels = c("Right preference (Intercept)"
                             , "Color Bias"
                             , "Reward (concentration right)"
+                            , "Familiarity (right vs left)"
                             , "Learning (interaction Rew x Fam)"
                             , "Random exploration (interaction Rew x Horizon)"
                             , "Directed exploration (interaction Fam x Horizon)"
           )
           , dv.labels = "Effect on probability of choosing right flower"
 )
-## Effect sizes figure Fig S4 -------------------------
-lab <- c("Directed exploration", "Random exploration", "Learning", "Reward", "Color Bias", "Right preference")
-model_comp(posterior_ExplR, expl_R, lab, 6)
-########################################################
+#######################################################
+## Effect sizes figure -------------------------
+if(saveFigs) {
+  setwd(figs_path)
+  pdf(file = "Fig3 Maze choose R all effect sizes.pdf", width = 10, height = 6)
+}
+lab <- c("Directed exploration", "Random exploration", "Learning", "Familiarity", "Reward", "Color Bias", "Right preference")
+model_comp(posterior_ExplR, expl_R, lab, 7)
+if(saveFigs) dev.off()
+#######################################################
 # III. Modeling choice of unfamiliar option directly ------------
 ## GLM for directed exploration -----------------------
 expl_UF <- glm(choseUnfamiliar ~ Unfamiliar_ConcDiff * Horizon, family = binomial, data = dat)
@@ -793,26 +824,26 @@ list_of_assumptions <- alist(
   # modeling the choice of the unfamiliar flower instead of the right side flower.
   CL ~ dbinom(1, prob), 
   # This is the core model formula
-  logit(prob) <- a + b*val + c*hor + d*val*hor, 
+  logit(prob) <- intpt + pval*val + phor*hor + direx*val*hor, 
   # And the following describes the priors for the parameters
-  a ~ dnorm(intercept_prior_mean, intercept_prior_sd), 
-  b ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
-  c ~ dnorm(slopehor_prior_mean, slopehor_prior_sd),
-  d ~ dnorm(slopevh_prior_mean, slopevh_prior_sd)
+  intpt ~ dnorm(intercept_prior_mean, intercept_prior_sd), 
+  pval ~ dnorm(slopeval_prior_mean, slopeval_prior_sd), 
+  phor ~ dnorm(slopehor_prior_mean, slopehor_prior_sd),
+  direx ~ dnorm(slopevh_prior_mean, slopevh_prior_sd)
 )
-
-
-### Bayesian estimation function -----------------------
 start <- function(dat) {
   return(
     list(
-      a = intercept_prior_mean
-      , b = slopeval_prior_mean
-      , c = slopehor_prior_mean
-      , d = slopevh_prior_mean
+      intpt = intercept_prior_mean
+      , pval = slopeval_prior_mean
+      , phor = slopehor_prior_mean
+      , direx = slopevh_prior_mean
     )
   )
 }
+
+### Bayesian estimation function -----------------------
+
 # CL stands for choice list, val is the value or reward difference between the options,
 # fam is the familiarity difference between the options. 
 BayesExploreUnf <- function(dat) {
@@ -824,26 +855,32 @@ BayesExploreUnf <- function(dat) {
 }
 ### Running the Bayesian analysis ----------------------
 posterior_ExplUF <- BayesExploreUnf(subset(dat, !is.na(dat$choseUnfamiliar)))
-## Effect sizes figure choosing unfamiliar flower -- Fig S4 to go with Fig. 4 -------------------------
+#######################################################
+## Effect sizes figure choosing unfamiliar flower -------------------------
+if(saveFigs) {
+  setwd(figs_path)
+  pdf(file = "FigS5 Maze effect size chose unfamiliar.pdf", width = 10, height = 6)
+}
 lab <- c("Interaction Val x Hor", "Horizon", "Value", "Intercept")
 model_comp(posterior_ExplUF, expl_UF, lab, 4)
-
-## Results Fig 4 - choice of unfamiliar flower w GLM & Bayes II -----------
+if(saveFigs) dev.off()
+#######################################################
+## Results Fig: choice of unfamiliar flower w GLM & Bayes II -----------
 # 2-panel Base R Plot to illustrate binomial fit and uncertainty
 if(saveFigs) {
   setwd(figs_path)
-  pdf(file = "Fig4 Maze chose unfamiliar.pdf", width = 10, height = 6)
+  pdf(file = "Fig5a Maze chose unfamiliar.pdf", width = 10, height = 6)
 }
 # Layout
 par(mfrow=c(1,2))
-par(oma = c(4,4,0,0), mar = c(1,1,3,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
+par(oma = c(4,4,1,0), mar = c(1,1,2,1), mgp=c(3, 1, 0), las=0) # bottom, left, top, right
 # Each panel doing its own modeling separately for glm
 # Extracting values from Bayesian model for graphing
 samples_of_post <- extract.samples(posterior_ExplUF, n=n_uncertainty)
-intercepts_post <- samples_of_post$a
-slopes_val <- samples_of_post$b
-slopes_hor <- samples_of_post$c
-slopes_valhor <- samples_of_post$d
+intercepts_post <- samples_of_post$intpt
+slopes_val <- samples_of_post$pval
+slopes_hor <- samples_of_post$phor
+slopes_valhor <- samples_of_post$direx
 
 ### Horizon 1 - model and graph ----------------
 d_graph <- subset(dat, dat$Horizon == 1)
@@ -859,9 +896,6 @@ axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are
 mtext("Horizon 1", 3, 1)
 # Y axis label for all panels
 mtext("Chose Low Familiarity Option", 2, 3)
-# Gridlines
-abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
-abline(v = 0, col = "grey", lty = 2, lwd = 1)
 # GLM - model and extracting estimates
 H1_Expl_mod <- glm(choseUnfamiliar ~ Unfamiliar_ConcDiff, family = binomial, data = d_graph)
 interc <- H1_Expl_mod$coefficients[[1]]
@@ -869,22 +903,23 @@ par1 <- H1_Expl_mod$coefficients[[2]]
 ose <- round(exp(par1),1)
 ose_sd <- round(exp(par1+summary(H1_Expl_mod)$coefficients[2,2]) - ose, 1)
 pvalue <- round(summary(H1_Expl_mod)$coefficients[2,4], 3)
-int <- round(probs_from_pars(0, 0, 0.5, interc, par1, 0, 0), 2)
-int_sd <- round(probs_from_pars(0, 0, 0.5, interc+summary(H1_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
+int <- round(probs_from_pars(0, 0, 0, interc, par1, 0, 0), 2)
+int_sd <- round(probs_from_pars(0, 0, 0, interc+summary(H1_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Extracting uncertainty
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H1_Expl_mod))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, 0, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2.5
+  if(showGLM) curve(probs_from_pars(x, 0, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2.5
         , add = TRUE
-        , col = alpha(colorshor[1], transparency_glm_uncertainty)
+        , col = alpha("grey34", transparency_glm_uncertainty)
         , lwd = 3
+        , lty = 2
   )
-  if(showBayes) curve(probs_from_pars(x, 0, 0.5, intercepts_post[i], slopes_val[i], slopes_hor[i], slopes_valhor[i])
+  if(showBayes) curve(probs_from_pars(x, 0, 0, intercepts_post[i], slopes_val[i], slopes_hor[i], slopes_valhor[i])
                       , from = -2, to = 2.5
                       , add = TRUE
                       , lwd = 3
-                      , col = alpha("grey34", transparency_Bay_uncertainty)
-                      , lty = 2
+                      , col = alpha(colorshor[1], transparency_Bay_uncertainty)
+                      , lty = 1
   )
 }
 # Original data points with slight jitter
@@ -897,21 +932,25 @@ points(jitter(choseUnfamiliar, factor = 0.2) ~ jitter(Unfamiliar_ConcDiff, facto
 # Plotting the estimated fit from the glm:
 # (We're doing this last instead of earlier so it comes out on top for better
 # visibility.)
-curve(probs_from_pars(x, 0, 0.5, interc, par1, 0, 0), from = -2, to = 2.5
+if(showGLM) curve(probs_from_pars(x, 0, 0, interc, par1, 0, 0), from = -2, to = 2.5
       , add = TRUE
-      , col = colorshor[1]
-      , lwd = 5)
+      , col = "grey34"
+      , lwd = 5
+      , lty = 2)
 # Plotting Bayesian fit line
-if(showBayes) curve(probs_from_pars(x, 0, 0.5, precis(posterior_ExplUF)[1,1]
+if(showBayes) curve(probs_from_pars(x, 0, 0, precis(posterior_ExplUF)[1,1]
                                     , precis(posterior_ExplUF)[2,1]
                                     , precis(posterior_ExplUF)[3,1]
                                     , precis(posterior_ExplUF)[4,1])
                     , from = -2, to = 2.5
                     , add = TRUE
                     , lwd = 4
-                    , col = "grey34"
-                    , lty = 2
+                    , col = colorshor[1]
+                    , lty = 1
 )
+# Gridlines
+abline(h = 0.5, col = "grey", lty = 2, lwd = 2)
+abline(v = 0, col = "grey", lty = 2, lwd = 2)
 # Text labels for panel
 overall <- round(mean(d_graph$choseUnfamiliar), 2)
 samples <- length(d_graph$choseUnfamiliar)
@@ -937,9 +976,8 @@ plot(NULL
      , xlim = c(-2, 2)
 )
 axis(1, at = c(-1.75, -0.75, 0.75, 1.75)) # Define where x-axis tick marks are
+mtext("Maze experiment", 3, 0, outer = TRUE)
 mtext("Horizon 6", 3, 1)
-abline(h = 0.5, col = "grey", lty = 2, lwd = 1)
-abline(v = 0, col = "grey", lty = 2, lwd = 1)
 # GLM - model and extracting estimates
 H6_Expl_mod <- glm(choseUnfamiliar ~ Unfamiliar_ConcDiff, family = binomial, data = d_graph)
 interc <- H6_Expl_mod$coefficients[[1]]
@@ -947,22 +985,23 @@ par1 <- H6_Expl_mod$coefficients[[2]]
 ose <- round(exp(par1),1)
 ose_sd <- round(exp(par1+summary(H6_Expl_mod)$coefficients[2,2]) - ose, 1)
 pvalue <- round(summary(H6_Expl_mod)$coefficients[2,4], 3)
-int <- round(probs_from_pars(0, 0, 0.5, interc, par1, 0, 0), 2)
-int_sd <- round(probs_from_pars(0, 0, 0.5, interc+summary(H6_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
+int <- round(probs_from_pars(0, 0, 0, interc, par1, 0, 0), 2)
+int_sd <- round(probs_from_pars(0, 0, 0, interc+summary(H6_Expl_mod)$coefficients[1,2], par1, 0, 0) - int, 2)
 # Bayesian model and extracting estimates
 fit_covar_matrix <- mvrnorm(n_uncertainty, mu=c(interc, par1), Sigma=vcov(H6_Expl_mod))
 for(i in 1:n_uncertainty) {
-  curve(probs_from_pars(x, -1, 0.5, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2.5
+  if(showGLM) curve(probs_from_pars(x, -1, 0, fit_covar_matrix[i,1], fit_covar_matrix[i,2], 0, 0), from = -2, to = 2.5
         , add = TRUE
-        , col = alpha(colorshor[2], transparency_glm_uncertainty)
+        , col = alpha("grey34", transparency_glm_uncertainty)
         , lwd = 3
+        , lty = 2
   )
-  if(showBayes) curve(probs_from_pars(x, 1, 0.5, intercepts_post[i], slopes_val[i], slopes_hor[i], slopes_valhor[i])
+  if(showBayes) curve(probs_from_pars(x, 1, 0, intercepts_post[i], slopes_val[i], slopes_hor[i], slopes_valhor[i])
                       , from = -2, to = 2.5
                       , add = TRUE
                       , lwd = 3
-                      , col = alpha("grey34", transparency_Bay_uncertainty)
-                      , lty = 2
+                      , col = alpha(colorshor[2], transparency_Bay_uncertainty)
+                      , lty = 1
   )
 }
 # Original data points with slight jitter
@@ -972,21 +1011,25 @@ points(jitter(choseUnfamiliar, factor = 0.2) ~ jitter(Unfamiliar_ConcDiff, facto
        , col = alpha(colorshor[2], 0.5)
        , cex = 1.5
 )
-curve(probs_from_pars(x, 0, 0.5, interc, par1, 0, 0), from = -2, to = 2.5
+if(showGLM) curve(probs_from_pars(x, 0, 0, interc, par1, 0, 0), from = -2, to = 2.5
       , add = TRUE
-      , col = colorshor[2]
-      , lwd = 5)
+      , col = "grey34"
+      , lwd = 5
+      , lty = 2)
 # Plotting Bayesian fit line
-if(showBayes) curve(probs_from_pars(x, 1, 0.5, precis(posterior_ExplUF)[1,1]
+if(showBayes) curve(probs_from_pars(x, 1, 0, precis(posterior_ExplUF)[1,1]
                                     , precis(posterior_ExplUF)[2,1]
                                     , precis(posterior_ExplUF)[3,1]
                                     , precis(posterior_ExplUF)[4,1])
                     , from = -2, to = 2.5
                     , add = TRUE
                     , lwd = 4
-                    , col = "grey34"
-                    , lty = 2
+                    , col = colorshor[2]
+                    , lty = 1
 )
+# Gridlines
+abline(h = 0.5, col = "grey", lty = 2, lwd = 2)
+abline(v = 0, col = "grey", lty = 2, lwd = 2)
 overall <- round(mean(d_graph$choseUnfamiliar), 2)
 samples <- length(d_graph$choseUnfamiliar)
 if(showDetail) {
