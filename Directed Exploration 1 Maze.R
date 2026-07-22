@@ -35,6 +35,8 @@ n_ppp_per_set <- 200
 N_sim <- 1000
 # Data formatting ---------------------------------
 MazeData$Horizon <- as.factor(MazeData$Horizon)
+MazeData$Bee_tag <- MazeData$Bee
+MazeData$BeeID <- paste(MazeData$Bee, MazeData$RA)
 # Adding a column 'choseUnfamiliar' indicating which choice (flower type) the bees
 # had more information about. In the 'EQ' treatment, bees have the same amount of
 # information about both types. 

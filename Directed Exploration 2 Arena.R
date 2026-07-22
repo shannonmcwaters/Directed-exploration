@@ -4,15 +4,14 @@
 # Data analysis & graphs - part 2: ARENA
 
 ## ARENA Exp
-# Data problems:
-# - FlowerColor has only 630 entries, choices had 662
-# - Yellow19 and Green83: 
-# number of choices is 759; rewards is 707, chosen color 690, informCh 707
+# Notes on data:
+# - the columns FlowerColor and FlowerReward list the color/reward for all available flowers in that trial,
+#   independently of what the bee chose.
 
 # SET THESE OPTIONS BEFORE RUNNING SCRIPT -----------------
 showsim <- FALSE
 showBayes <- TRUE
-showGLM <- TRUE
+showGLM <- FALSE
 showDetail <- FALSE
 saveFigs <- FALSE
 figs_path <- paste(getwd(), "/Figures", sep = "")
@@ -46,11 +45,12 @@ N_sim <- 1000
 
 # Importing data for experiment 2 directly from github -----------------------
 ArenaData = read.csv("https://raw.githubusercontent.com/shannonmcwaters/Directed-exploration/refs/heads/main/Arena%20Data%20raw")
-# Should 'problematic' bees be excluded? 
-ArenaData2 <- subset(ArenaData, Bee!="Yellow46" & Bee!="Green57" & Bee!="Yellow19" & Bee!="Green83")
+# Problematic bees: 
+table(ArenaData$Bee, ArenaData$Horizon)
 # Yellow46 has only 2 rows order 1 (no horizon 2)
 # Green57 has 2 rows order 1 (no horizon 16)
-# Yellow19 and Green83 have a mismatch between recorded choices and rewards
+# Green83 has no entries for informative choices/rewards in a few rows (note says colors are wrong somewhere?)
+ArenaData2 <- subset(ArenaData, Bee!="Yellow46" & Bee!="Green57" & Bee!="Green83")
 #####################################################################
 # Data formatting & calculations --------------------------------------
 # Filter for columns we will actually use here
@@ -81,7 +81,7 @@ for(i in 1:length(Choice)) {
 }
 
 #Combine to form new dataset
-ArenaDataLong <- data.frame(Bee,Horizon,Order,Session,Condition,Choices,Reward,InformativeColor,InformChoices)
+ArenaDataLong <- data.frame(Bee,Horizon,Order,Session,Condition,Choices,InformativeColor,InformChoices,Reward)
 
 # Mark choice number per session, i.e. within the same arena visit
 ArenaDataLong <- ArenaDataLong %>%
@@ -771,7 +771,7 @@ plot(NULL
      , xlim = c(-2, 2)
 )
 axis(1, at = c(-1.75, -0.75, 0, 0.75, 1.75)) # Define where x-axis tick marks are
-mtext("Chose Low Familiarity Option", 2, 3)
+mtext("Chose so far less visited option", 2, 3)
 # Each color doing its own modeling separately for glm
 ### model and graph ----------------
 for(i in 1:4) {
@@ -813,12 +813,14 @@ for(i in 1:4) {
         , lwd = 5
         , lty = i
   )
+  print(i)
+  print(summary(allchoicesfit))
 }
 ### Axis label -------------
 # Gridlines
 abline(h = 0.5, col = "grey", lty = 2, lwd = 2)
 abline(v = 0, col = "grey", lty = 2, lwd = 2)
-mtext("Concentration Difference (unfamiliar - familiar)", 1, 2, outer = TRUE)
+mtext("Concentration difference across all visited flowers (less visited - more visited)", 1, 2, outer = TRUE)
 if(saveFigs) {dev.off()}
 ### end fig --------------------------------------
 #######################################################
